@@ -11,7 +11,7 @@
 
 - 📫 How to reach me **lathanhunter8@gmail.com**
 
-- ⚡ Fun fact **LeBron > Jordan**
+- ⚡ Fun fact **Basketball is great**
 
 <h3 align="left">Connect with me:</h3>
 <p align="left">
