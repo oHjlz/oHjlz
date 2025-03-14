@@ -5,7 +5,7 @@
 
 <p align="left"> <a href="https://github.com/ryo-ma/github-profile-trophy"><img src="https://github-profile-trophy.vercel.app/?username=ohjlz" alt="ohjlz" /></a> </p>
 
-- 🌱 I’m currently learning **Circuits, Signals and Systems, Non-Linear Data Structures**
+- 🌱 I’m currently learning ** Software Engineering, Theory of Computation, Operating Systems**
 
 - 💬 Ask me about **C++**
 
