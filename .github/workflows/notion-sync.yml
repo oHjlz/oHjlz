@@ -78,11 +78,11 @@ jobs:
             }).join('');
           }
 
-          async function getTableRows(tableId, token) {
+          async function getChildBlocks(blockId, token) {
             const options = {
               hostname: 'api.notion.com',
               port: 443,
-              path: `/v1/blocks/${tableId}/children`,
+              path: `/v1/blocks/${blockId}/children`,
               method: 'GET',
               headers: {
                 'Authorization': `Bearer ${token}`,
@@ -94,9 +94,61 @@ jobs:
             return await makeRequest(options);
           }
 
-          async function convertBlockToMarkdown(block, token) {
+          async function queryDatabase(databaseId, token) {
+            const options = {
+              hostname: 'api.notion.com',
+              port: 443,
+              path: `/v1/databases/${databaseId}/query`,
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Notion-Version': '2022-06-28',
+                'Content-Type': 'application/json',
+                'User-Agent': 'GitHub-Action-Sync'
+              }
+            };
+            return await makeRequest(options, {});
+          }
+
+          function formatPropertyValue(property) {
+            if (!property) return '';
+            
+            switch (property.type) {
+              case 'title':
+                return property.title.map(t => t.plain_text).join('');
+              case 'rich_text':
+                return property.rich_text.map(t => t.plain_text).join('');
+              case 'number':
+                return property.number ? property.number.toString() : '';
+              case 'select':
+                return property.select ? property.select.name : '';
+              case 'multi_select':
+                return property.multi_select.map(s => s.name).join(', ');
+              case 'date':
+                return property.date ? property.date.start : '';
+              case 'checkbox':
+                return property.checkbox ? '✅' : '❌';
+              case 'url':
+                return property.url ? `[Link](${property.url})` : '';
+              case 'email':
+                return property.email ? `[${property.email}](mailto:${property.email})` : '';
+              case 'phone_number':
+                return property.phone_number || '';
+              case 'status':
+                return property.status ? property.status.name : '';
+              default:
+                return '';
+            }
+          }
+
+          async function convertBlockToMarkdown(block, token, depth = 0) {
+            const indent = '  '.repeat(depth);
+            
             switch (block.type) {
               case 'paragraph':
+                if (!block.paragraph.rich_text || block.paragraph.rich_text.length === 0) {
+                  return '\n';
+                }
                 return formatRichText(block.paragraph.rich_text) + '\n\n';
                 
               case 'heading_1':
@@ -109,14 +161,56 @@ jobs:
                 return '### ' + formatRichText(block.heading_3.rich_text) + '\n\n';
                 
               case 'bulleted_list_item':
-                return '- ' + formatRichText(block.bulleted_list_item.rich_text) + '\n';
+                let bulletContent = indent + '- ' + formatRichText(block.bulleted_list_item.rich_text) + '\n';
+                if (block.has_children) {
+                  try {
+                    const children = await getChildBlocks(block.id, token);
+                    if (children.results) {
+                      for (const child of children.results) {
+                        bulletContent += await convertBlockToMarkdown(child, token, depth + 1);
+                      }
+                    }
+                  } catch (error) {
+                    console.log('Error getting bullet children:', error);
+                  }
+                }
+                return bulletContent;
                 
               case 'numbered_list_item':
-                return '1. ' + formatRichText(block.numbered_list_item.rich_text) + '\n';
+                let numberedContent = indent + '1. ' + formatRichText(block.numbered_list_item.rich_text) + '\n';
+                if (block.has_children) {
+                  try {
+                    const children = await getChildBlocks(block.id, token);
+                    if (children.results) {
+                      for (const child of children.results) {
+                        numberedContent += await convertBlockToMarkdown(child, token, depth + 1);
+                      }
+                    }
+                  } catch (error) {
+                    console.log('Error getting numbered children:', error);
+                  }
+                }
+                return numberedContent;
                 
               case 'to_do':
                 const checked = block.to_do.checked ? '[x]' : '[ ]';
-                return `- ${checked} ` + formatRichText(block.to_do.rich_text) + '\n';
+                return indent + `- ${checked} ` + formatRichText(block.to_do.rich_text) + '\n';
+                
+              case 'toggle':
+                let toggleContent = '### ' + formatRichText(block.toggle.rich_text) + '\n\n';
+                if (block.has_children) {
+                  try {
+                    const children = await getChildBlocks(block.id, token);
+                    if (children.results) {
+                      for (const child of children.results) {
+                        toggleContent += await convertBlockToMarkdown(child, token, depth);
+                      }
+                    }
+                  } catch (error) {
+                    console.log('Error getting toggle children:', error);
+                  }
+                }
+                return toggleContent;
                 
               case 'code':
                 const language = block.code.language || '';
@@ -135,24 +229,23 @@ jobs:
                 
               case 'table':
                 try {
-                  const tableData = await getTableRows(block.id, token);
+                  const tableData = await getChildBlocks(block.id, token);
                   if (!tableData.results || tableData.results.length === 0) {
-                    return '| Table | Content | Not | Available |\n|-------|---------|-----|----------|\n\n';
+                    return '**[Empty Table]**\n\n';
                   }
                   
                   let tableMarkdown = '';
                   const rows = tableData.results;
                   
-                  // Process table rows
                   for (let i = 0; i < rows.length; i++) {
                     const row = rows[i];
                     if (row.type === 'table_row' && row.table_row && row.table_row.cells) {
-                      const cells = row.table_row.cells.map(cell => 
-                        formatRichText(cell).replace(/\|/g, '\\|').trim() || ' '
-                      );
+                      const cells = row.table_row.cells.map(cell => {
+                        const cellText = formatRichText(cell).replace(/\|/g, '\\|').trim();
+                        return cellText || ' ';
+                      });
                       tableMarkdown += '| ' + cells.join(' | ') + ' |\n';
                       
-                      // Add header separator after first row
                       if (i === 0) {
                         const separators = cells.map(() => '---');
                         tableMarkdown += '| ' + separators.join(' | ') + ' |\n';
@@ -163,14 +256,79 @@ jobs:
                   return tableMarkdown + '\n';
                 } catch (error) {
                   console.log('Error processing table:', error);
-                  return '**[Table content - view in Notion for full details]**\n\n';
+                  return '**[Table - Error loading content]**\n\n';
+                }
+                
+              case 'child_database':
+                try {
+                  console.log('Processing database:', block.id);
+                  const dbData = await queryDatabase(block.id, token);
+                  
+                  if (!dbData.results || dbData.results.length === 0) {
+                    return '**[Empty Database]**\n\n';
+                  }
+                  
+                  let dbMarkdown = '';
+                  const entries = dbData.results;
+                  
+                  // Get property names from first entry
+                  const firstEntry = entries[0];
+                  if (firstEntry && firstEntry.properties) {
+                    const propertyNames = Object.keys(firstEntry.properties);
+                    
+                    // Create header
+                    dbMarkdown += '| ' + propertyNames.join(' | ') + ' |\n';
+                    dbMarkdown += '| ' + propertyNames.map(() => '---').join(' | ') + ' |\n';
+                    
+                    // Add data rows
+                    for (const entry of entries) {
+                      const rowData = propertyNames.map(propName => {
+                        const value = formatPropertyValue(entry.properties[propName]);
+                        return value.replace(/\|/g, '\\|') || ' ';
+                      });
+                      dbMarkdown += '| ' + rowData.join(' | ') + ' |\n';
+                    }
+                  }
+                  
+                  return dbMarkdown + '\n';
+                } catch (error) {
+                  console.log('Error processing database:', error);
+                  return '**[Database - Error loading content]**\n\n';
+                }
+                
+              case 'column_list':
+                try {
+                  const columns = await getChildBlocks(block.id, token);
+                  let columnContent = '';
+                  
+                  if (columns.results && columns.results.length > 0) {
+                    // Process each column
+                    for (let i = 0; i < columns.results.length; i++) {
+                      const column = columns.results[i];
+                      if (column.type === 'column') {
+                        columnContent += `#### Column ${i + 1}\n\n`;
+                        const columnBlocks = await getChildBlocks(column.id, token);
+                        if (columnBlocks.results) {
+                          for (const colBlock of columnBlocks.results) {
+                            columnContent += await convertBlockToMarkdown(colBlock, token, depth);
+                          }
+                        }
+                        columnContent += '\n';
+                      }
+                    }
+                  }
+                  
+                  return columnContent;
+                } catch (error) {
+                  console.log('Error processing columns:', error);
+                  return '**[Column Layout - Error loading content]**\n\n';
                 }
                 
               case 'embed':
                 if (block.embed && block.embed.url) {
-                  return `[Embedded Content](${block.embed.url})\n\n`;
+                  return `[📎 Embedded Content](${block.embed.url})\n\n`;
                 }
-                return '**[Embedded content - view in Notion]**\n\n';
+                return '**[📎 Embedded content]**\n\n';
                 
               case 'image':
                 if (block.image && (block.image.file?.url || block.image.external?.url)) {
@@ -178,15 +336,22 @@ jobs:
                   const caption = block.image.caption ? formatRichText(block.image.caption) : '';
                   return `![${caption}](${imageUrl})\n${caption ? `*${caption}*\n` : ''}\n`;
                 }
-                return '**[Image - view in Notion]**\n\n';
+                return '**[🖼️ Image]**\n\n';
+                
+              case 'bookmark':
+                if (block.bookmark && block.bookmark.url) {
+                  const caption = block.bookmark.caption ? formatRichText(block.bookmark.caption) : 'Bookmark';
+                  return `[🔖 ${caption}](${block.bookmark.url})\n\n`;
+                }
+                return '**[🔖 Bookmark]**\n\n';
                 
               default:
-                // Handle unknown blocks gracefully
+                // Handle any other block types gracefully
                 if (block[block.type] && block[block.type].rich_text) {
                   return formatRichText(block[block.type].rich_text) + '\n\n';
                 }
                 console.log(`Unsupported block type: ${block.type}`);
-                return `**[${block.type.replace('_', ' ').toUpperCase()} - view in Notion for full content]**\n\n`;
+                return `**[${block.type.replace('_', ' ').toUpperCase()}]**\n\n`;
             }
           }
 
