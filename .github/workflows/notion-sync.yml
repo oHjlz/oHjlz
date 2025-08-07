@@ -244,13 +244,13 @@ jobs:
               const endIndex = readme.indexOf(endMarker);
 
               if (startIndex !== -1 && endIndex !== -1) {
+                // Replace ONLY the content between markers
                 const before = readme.substring(0, startIndex + startMarker.length);
                 const after = readme.substring(endIndex);
                 readme = before + '\n\n' + markdown + '\n' + after;
               } else {
-                const header = `\n\n## 🧠 Blind 75 LeetCode Progress\n\n${startMarker}\n\n`;
-                const footer = `\n${endMarker}\n`;
-                readme += header + markdown + footer;
+                // If markers don't exist, add them and content at the end
+                readme += `\n\n## 🧠 Blind 75 LeetCode Progress\n\n${startMarker}\n\n${markdown}\n${endMarker}\n`;
               }
 
               fs.writeFileSync('README.md', readme);
