@@ -31,13 +31,6 @@ Hi, I'm Hunter 👋
 
 💡 **Hola!!!!**
 
-## Keep Going Mate, I know you can do it!
-
-> “Greatness is sifted through the grind, therefore don't despise the hard work now for surely it will be worth it in the end.” - **Sanjo Jendayi**
-
-
-
-**My Github is Below:**
 
 
 ---
