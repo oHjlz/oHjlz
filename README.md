@@ -21,3 +21,27 @@ Hi, I'm Hunter 👋
 [![](https://visitcount.itsvg.in/api?id=oHjlz&icon=0&color=0)](https://visitcount.itsvg.in)
 
 <!-- Proudly created with GPRM ( https://gprm.itsvg.in ) -->
+
+
+## 🧠 Blind 75 LeetCode Progress
+
+<!-- NOTION-SYNC-START -->
+
+
+
+💡 **Hola!!!!**
+
+## Keep Going Mate, I know you can do it!
+
+> “Greatness is sifted through the grind, therefore don't despise the hard work now for surely it will be worth it in the end.” - **Sanjo Jendayi**
+
+
+
+**My Github is Below:**
+
+
+---
+
+*📅 Last synced: 2025-08-07*
+
+<!-- NOTION-SYNC-END -->
