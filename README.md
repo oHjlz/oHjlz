@@ -19,6 +19,10 @@
 
 💡 **Hola!!!!**
 
+**[COLUMN LIST - view in Notion for full content]**
+
+**[CHILD DATABASE - view in Notion for full content]**
+
 
 
 
