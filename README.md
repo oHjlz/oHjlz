@@ -18,27 +18,9 @@
 
 💡 **Hola!!!!**
 
-#### Column 1
-
 | Progress | Number of Days | Completed | Property | Name |
 | --- | --- | --- | --- | --- |
-|   |   |   |   | Your Progress |
-
-
-
-#### Column 2
-
-**Quick Links 🌐**
-
-[**Blind 75 Leetcode**](https://leetcode.com/discuss/general-discussion/460599/blind-75-leetcode-questions)
-
-[**Neetcode 150**](https://neetcode.io/practice)
-
-[**Intro to DSA (GFG)**](https://www.geeksforgeeks.org/data-structures/)
-
-[**Interview Preparation**](https://grow.google/certificates/interview-warmup/)
-
-[**Youtube Lectures**](https://www.youtube.com/c/NeetCode)
+| ✅⬜⬜⬜⬜⬜⬜⬜⬜⬜ 9% |   |   |   | Your Progress |
 
 
 | Time & Space Complexity | Work | Date Edited / Completed | Difficulty |  | Done | Problem Name & Link | Topic | Languages | Related to Progress (Days) | Day |
@@ -50,11 +32,11 @@
 |   |   |   |   |   | ❌ |   |   |   |   | Day 72 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 99 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 47 |
-| O(n) O(1)   | Work |   | Easy |   | ✅ | Valid Palindrome | Arrays | java |   | Day 9 |
+| O(n) O(1) | Work |   | Easy |   | ✅ | Valid Palindrome | Arrays | java |   | Day 9 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 78 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 31 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 93 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 100  |
+|   |   |   |   |   | ❌ |   |   |   |   | Day 100 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 37 |
 | O(n) O(n) | Work |   | Medium |   | ✅ | Product Except Self | Arrays | java |   | Day 7 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 38 |
@@ -63,10 +45,10 @@
 |   |   |   |   |   | ❌ |   |   |   |   | Day 70 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 89 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 50 |
-| O(m*n) O(m)  | Work |   | Medium |   | ✅ | Group Anagrams | Arrays | java |   | Day 4 |
+| O(m*n) O(m) | Work |   | Medium |   | ✅ | Group Anagrams | Arrays | java |   | Day 4 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 52 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 56 |
-| O(n+m) O(n)  | Work |   | Easy |   | ✅ | Valid-Anagram | Arrays | java |   | Day 2 |
+| O(n+m) O(n) | Work |   | Easy |   | ✅ | Valid-Anagram | Arrays | java |   | Day 2 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 71 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 58 |
 | O(n) O(n) | Work |   | Easy |   | ✅ | Duplicate-Integer | Arrays | java |   | Day 1 |
@@ -110,7 +92,7 @@
 |   |   |   |   |   | ❌ |   |   |   |   | Day 24 |
 |   | Work |   |   |   | ❌ |   |   |   |   | Day 12 |
 |   | Work |   |   |   | ❌ |   |   |   |   | Day 19 |
-| O(m) O(m+n)  | Work |   | Medium |   | ✅ | Encoding & Decoding | Arrays | java |   | Day 6 |
+| O(m) O(m+n) | Work |   | Medium |   | ✅ | Encoding & Decoding | Arrays | java |   | Day 6 |
 |   | Work |   |   |   | ❌ |   |   |   |   | Day 10 |
 |   |   |   |   |   | ❌ |   |   |   |   | Day 87 |
 |   | Work |   |   |   | ❌ |   |   |   |   | Day 18 |
