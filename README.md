@@ -15,21 +15,6 @@
 
 <!-- NOTION-SYNC-START -->
 
-
-
-💡 **Hola!!!!**
-
-**[COLUMN LIST - view in Notion for full content]**
-
-**[CHILD DATABASE - view in Notion for full content]**
-
-
-
-
----
-
-*📅 Last synced: 2025-08-07*
-
 <!-- NOTION-SYNC-END -->
 
 # 📊 GitHub Stats:
