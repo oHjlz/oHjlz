@@ -78,7 +78,23 @@ jobs:
             }).join('');
           }
 
-          async function convertBlockToMarkdown(block) {
+          async function getTableRows(tableId, token) {
+            const options = {
+              hostname: 'api.notion.com',
+              port: 443,
+              path: `/v1/blocks/${tableId}/children`,
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Notion-Version': '2022-06-28',
+                'Content-Type': 'application/json',
+                'User-Agent': 'GitHub-Action-Sync'
+              }
+            };
+            return await makeRequest(options);
+          }
+
+          async function convertBlockToMarkdown(block, token) {
             switch (block.type) {
               case 'paragraph':
                 return formatRichText(block.paragraph.rich_text) + '\n\n';
@@ -117,8 +133,60 @@ jobs:
               case 'divider':
                 return '---\n\n';
                 
+              case 'table':
+                try {
+                  const tableData = await getTableRows(block.id, token);
+                  if (!tableData.results || tableData.results.length === 0) {
+                    return '| Table | Content | Not | Available |\n|-------|---------|-----|----------|\n\n';
+                  }
+                  
+                  let tableMarkdown = '';
+                  const rows = tableData.results;
+                  
+                  // Process table rows
+                  for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+                    if (row.type === 'table_row' && row.table_row && row.table_row.cells) {
+                      const cells = row.table_row.cells.map(cell => 
+                        formatRichText(cell).replace(/\|/g, '\\|').trim() || ' '
+                      );
+                      tableMarkdown += '| ' + cells.join(' | ') + ' |\n';
+                      
+                      // Add header separator after first row
+                      if (i === 0) {
+                        const separators = cells.map(() => '---');
+                        tableMarkdown += '| ' + separators.join(' | ') + ' |\n';
+                      }
+                    }
+                  }
+                  
+                  return tableMarkdown + '\n';
+                } catch (error) {
+                  console.log('Error processing table:', error);
+                  return '**[Table content - view in Notion for full details]**\n\n';
+                }
+                
+              case 'embed':
+                if (block.embed && block.embed.url) {
+                  return `[Embedded Content](${block.embed.url})\n\n`;
+                }
+                return '**[Embedded content - view in Notion]**\n\n';
+                
+              case 'image':
+                if (block.image && (block.image.file?.url || block.image.external?.url)) {
+                  const imageUrl = block.image.file?.url || block.image.external?.url;
+                  const caption = block.image.caption ? formatRichText(block.image.caption) : '';
+                  return `![${caption}](${imageUrl})\n${caption ? `*${caption}*\n` : ''}\n`;
+                }
+                return '**[Image - view in Notion]**\n\n';
+                
               default:
-                return '';
+                // Handle unknown blocks gracefully
+                if (block[block.type] && block[block.type].rich_text) {
+                  return formatRichText(block[block.type].rich_text) + '\n\n';
+                }
+                console.log(`Unsupported block type: ${block.type}`);
+                return `**[${block.type.replace('_', ' ').toUpperCase()} - view in Notion for full content]**\n\n`;
             }
           }
 
@@ -152,7 +220,7 @@ jobs:
 
               let markdown = '';
               for (const block of allBlocks) {
-                markdown += await convertBlockToMarkdown(block);
+                markdown += await convertBlockToMarkdown(block, token);
               }
 
               // Add metadata
