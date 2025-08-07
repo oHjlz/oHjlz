@@ -107,7 +107,31 @@ jobs:
                 'User-Agent': 'GitHub-Action-Sync'
               }
             };
-            return await makeRequest(options, {});
+            
+            const requestBody = {
+              filter: {
+                and: []
+              },
+              sorts: []
+            };
+            
+            return await makeRequest(options, requestBody);
+          }
+
+          async function getDatabaseSchema(databaseId, token) {
+            const options = {
+              hostname: 'api.notion.com',
+              port: 443,
+              path: `/v1/databases/${databaseId}`,
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Notion-Version': '2022-06-28',
+                'Content-Type': 'application/json',
+                'User-Agent': 'GitHub-Action-Sync'
+              }
+            };
+            return await makeRequest(options);
           }
 
           function formatPropertyValue(property) {
@@ -115,9 +139,9 @@ jobs:
             
             switch (property.type) {
               case 'title':
-                return property.title.map(t => t.plain_text).join('');
+                return property.title.map(t => t.plain_text).join('').trim();
               case 'rich_text':
-                return property.rich_text.map(t => t.plain_text).join('');
+                return property.rich_text.map(t => t.plain_text).join('').trim();
               case 'number':
                 return property.number ? property.number.toString() : '';
               case 'select':
@@ -136,9 +160,34 @@ jobs:
                 return property.phone_number || '';
               case 'status':
                 return property.status ? property.status.name : '';
+              case 'formula':
+                if (property.formula) {
+                  switch (property.formula.type) {
+                    case 'string':
+                      return property.formula.string || '';
+                    case 'number':
+                      return property.formula.number ? property.formula.number.toString() : '';
+                    case 'boolean':
+                      return property.formula.boolean ? '✅' : '❌';
+                    case 'date':
+                      return property.formula.date ? property.formula.date.start : '';
+                    default:
+                      return '';
+                  }
+                }
+                return '';
               default:
                 return '';
             }
+          }
+
+          function isRowEmpty(entry, propertyNames) {
+            // Check if all important columns are empty (excluding auto-generated ones)
+            return propertyNames.every(propName => {
+              const value = formatPropertyValue(entry.properties[propName]);
+              // Consider a row empty if all values are empty strings, just checkmarks, or just dashes
+              return !value || value.trim() === '' || value === '❌' || value === '-';
+            });
           }
 
           async function convertBlockToMarkdown(block, token, depth = 0) {
@@ -235,20 +284,38 @@ jobs:
                   }
                   
                   let tableMarkdown = '';
-                  const rows = tableData.results;
+                  const rows = tableData.results.filter(row => row.type === 'table_row');
                   
-                  for (let i = 0; i < rows.length; i++) {
-                    const row = rows[i];
-                    if (row.type === 'table_row' && row.table_row && row.table_row.cells) {
+                  if (rows.length === 0) return '**[Empty Table]**\n\n';
+                  
+                  // Get column count from first row
+                  const columnCount = rows[0].table_row?.cells?.length || 0;
+                  if (columnCount === 0) return '**[Empty Table]**\n\n';
+                  
+                  let headerProcessed = false;
+                  
+                  for (const row of rows) {
+                    if (row.table_row && row.table_row.cells) {
                       const cells = row.table_row.cells.map(cell => {
                         const cellText = formatRichText(cell).replace(/\|/g, '\\|').trim();
                         return cellText || ' ';
                       });
-                      tableMarkdown += '| ' + cells.join(' | ') + ' |\n';
                       
-                      if (i === 0) {
-                        const separators = cells.map(() => '---');
-                        tableMarkdown += '| ' + separators.join(' | ') + ' |\n';
+                      // Check if row is empty (all cells are empty or just spaces)
+                      const hasContent = cells.some(cell => cell.trim() && cell !== ' ');
+                      
+                      if (hasContent) {
+                        // Ensure we have the right number of columns
+                        while (cells.length < columnCount) cells.push(' ');
+                        
+                        tableMarkdown += '| ' + cells.join(' | ') + ' |\n';
+                        
+                        // Add separator after first non-empty row (header)
+                        if (!headerProcessed) {
+                          const separators = cells.map(() => '---');
+                          tableMarkdown += '| ' + separators.join(' | ') + ' |\n';
+                          headerProcessed = true;
+                        }
                       }
                     }
                   }
@@ -262,6 +329,9 @@ jobs:
               case 'child_database':
                 try {
                   console.log('Processing database:', block.id);
+                  
+                  // Get database schema to preserve column order
+                  const dbSchema = await getDatabaseSchema(block.id, token);
                   const dbData = await queryDatabase(block.id, token);
                   
                   if (!dbData.results || dbData.results.length === 0) {
@@ -271,23 +341,46 @@ jobs:
                   let dbMarkdown = '';
                   const entries = dbData.results;
                   
-                  // Get property names from first entry
-                  const firstEntry = entries[0];
-                  if (firstEntry && firstEntry.properties) {
-                    const propertyNames = Object.keys(firstEntry.properties);
-                    
-                    // Create header
-                    dbMarkdown += '| ' + propertyNames.join(' | ') + ' |\n';
-                    dbMarkdown += '| ' + propertyNames.map(() => '---').join(' | ') + ' |\n';
-                    
-                    // Add data rows
-                    for (const entry of entries) {
-                      const rowData = propertyNames.map(propName => {
-                        const value = formatPropertyValue(entry.properties[propName]);
-                        return value.replace(/\|/g, '\\|') || ' ';
-                      });
-                      dbMarkdown += '| ' + rowData.join(' | ') + ' |\n';
+                  // Get property names in the correct order from schema
+                  let propertyNames = [];
+                  if (dbSchema.properties) {
+                    // Use the order from the database schema
+                    propertyNames = Object.keys(dbSchema.properties);
+                  } else if (entries[0] && entries[0].properties) {
+                    // Fallback to first entry properties
+                    propertyNames = Object.keys(entries[0].properties);
+                  }
+                  
+                  if (propertyNames.length === 0) {
+                    return '**[Database - No properties found]**\n\n';
+                  }
+                  
+                  // Filter out completely empty rows
+                  const nonEmptyEntries = entries.filter(entry => !isRowEmpty(entry, propertyNames));
+                  
+                  if (nonEmptyEntries.length === 0) {
+                    return '**[Database - No data to display]**\n\n';
+                  }
+                  
+                  // Create header with proper column names from schema
+                  const headerNames = propertyNames.map(propName => {
+                    // Get the display name from schema if available
+                    if (dbSchema.properties && dbSchema.properties[propName]) {
+                      return dbSchema.properties[propName].name || propName;
                     }
+                    return propName;
+                  });
+                  
+                  dbMarkdown += '| ' + headerNames.join(' | ') + ' |\n';
+                  dbMarkdown += '| ' + propertyNames.map(() => '---').join(' | ') + ' |\n';
+                  
+                  // Add data rows (only non-empty ones)
+                  for (const entry of nonEmptyEntries) {
+                    const rowData = propertyNames.map(propName => {
+                      const value = formatPropertyValue(entry.properties[propName]);
+                      return value.replace(/\|/g, '\\|') || ' ';
+                    });
+                    dbMarkdown += '| ' + rowData.join(' | ') + ' |\n';
                   }
                   
                   return dbMarkdown + '\n';
