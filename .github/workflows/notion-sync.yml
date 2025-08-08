@@ -138,15 +138,21 @@ jobs:
             const data = [];
             let headerProcessed = false;
             
-            for (const row of tableRows) {
+            console.log(`Parsing ${tableRows.length} table rows...`);
+            
+            for (let i = 0; i < tableRows.length; i++) {
+              const row = tableRows[i];
+              console.log(`Processing row ${i}: type = ${row.type}`);
+              
               if (row.type === 'table_row' && row.table_row && row.table_row.cells) {
                 const cells = row.table_row.cells.map(cell => formatRichText(cell).trim());
+                console.log(`Row ${i} cells:`, cells);
                 
                 if (!headerProcessed) {
                   // First row is header
                   headers.push(...cells);
                   headerProcessed = true;
-                  console.log('Table headers found:', headers);
+                  console.log('✅ Table headers found:', headers);
                 } else {
                   // Data rows
                   const rowData = {};
@@ -156,22 +162,52 @@ jobs:
                     }
                   });
                   
-                  // Only include rows where "Done" column has a checkmark
-                  // Look for the Done column in different possible names
-                  const doneValue = rowData['Done'] || rowData['done'] || '';
-                  console.log('Checking row - Done value:', doneValue);
+                  console.log(`Row ${i} data:`, rowData);
+                  
+                  // Look for Done column in different possible positions and names
+                  let doneValue = '';
+                  let doneFound = false;
+                  
+                  // Try different variations of the Done column
+                  for (const header of headers) {
+                    if (header.toLowerCase().includes('done') || 
+                        header.toLowerCase().includes('completed') ||
+                        header.toLowerCase().includes('check')) {
+                      doneValue = rowData[header] || '';
+                      doneFound = true;
+                      console.log(`Found Done column "${header}" with value: "${doneValue}"`);
+                      break;
+                    }
+                  }
+                  
+                  if (!doneFound) {
+                    // Try by position - Done might be in a specific column
+                    console.log('No Done column found by name, checking all cells for checkmarks...');
+                    cells.forEach((cell, idx) => {
+                      console.log(`Cell ${idx} (${headers[idx] || 'unknown'}): "${cell}"`);
+                      if (cell.includes('✅') || cell.includes('☑') || cell.includes('✓') || 
+                          cell === 'true' || cell.toLowerCase() === 'yes') {
+                        doneValue = cell;
+                        doneFound = true;
+                        console.log(`Found checkmark in column ${idx}: "${cell}"`);
+                      }
+                    });
+                  }
                   
                   // Check for actual checkmark symbols or "true" values
                   if (doneValue.includes('✅') || doneValue.includes('☑') || 
                       doneValue.includes('✓') || doneValue === 'true' ||
                       doneValue.toLowerCase() === 'yes') {
-                    console.log('Including completed row:', rowData);
+                    console.log('✅ Including completed row');
                     data.push(rowData);
+                  } else {
+                    console.log('❌ Skipping uncompleted row');
                   }
                 }
               }
             }
             
+            console.log(`Final result: ${headers.length} headers, ${data.length} completed rows`);
             return { headers, data };
           }
 
@@ -228,14 +264,38 @@ jobs:
               // Find table blocks
               let tableData = { headers: [], data: [] };
               
-              for (const block of allBlocks) {
+              console.log('Searching for table in blocks...');
+              for (let i = 0; i < allBlocks.length; i++) {
+                const block = allBlocks[i];
+                console.log(`Block ${i}: type = ${block.type}`);
+                
                 if (block.type === 'table') {
-                  console.log('Found table block, fetching rows...');
+                  console.log('✅ Found table block, fetching rows...');
                   const tableRows = await getChildBlocks(block.id, token);
-                  if (tableRows.results) {
+                  console.log(`Table has ${tableRows.results?.length || 0} rows`);
+                  
+                  if (tableRows.results && tableRows.results.length > 0) {
+                    // Log first few rows to see the structure
+                    console.log('First 3 table rows structure:');
+                    tableRows.results.slice(0, 3).forEach((row, idx) => {
+                      if (row.type === 'table_row' && row.table_row?.cells) {
+                        const cells = row.table_row.cells.map(cell => formatRichText(cell).trim());
+                        console.log(`Row ${idx}:`, cells);
+                      }
+                    });
+                    
                     tableData = parseTableData(tableRows.results);
-                    console.log(`Found ${tableData.headers.length} columns and ${tableData.data.length} completed rows`);
+                    console.log(`✅ Parsed table: ${tableData.headers.length} columns, ${tableData.data.length} completed rows`);
                     break; // Use the first table found
+                  }
+                } else if (block.type === 'child_database') {
+                  console.log('Found child database block - this might be your table');
+                  // Handle embedded databases too
+                  try {
+                    const dbData = await getChildBlocks(block.id, token);
+                    console.log('Database child blocks:', dbData.results?.length || 0);
+                  } catch (error) {
+                    console.log('Error accessing child database:', error.message);
                   }
                 }
               }
