@@ -1,619 +1,440 @@
-# .github/workflows/notion-sync.yml
-name: Sync Notion to README
+const https = require('https');
+const fs = require('fs');
 
-on:
-  schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
-  workflow_dispatch:  # Manual trigger button
-  push:
-    paths:
-      - '.github/workflows/notion-sync.yml'  # Run when workflow is updated
+function makeRequest(options, postData = null) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          resolve(data);
+        }
+      });
+    });
+    req.on('error', reject);
+    if (postData) req.write(JSON.stringify(postData));
+    req.end();
+  });
+}
 
-jobs:
-  sync-notion:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+async function getNotionBlocks(pageId, token, startCursor = null) {
+  const options = {
+    hostname: 'api.notion.com',
+    port: 443,
+    path: `/v1/blocks/${pageId}/children${startCursor ? `?start_cursor=${startCursor}` : ''}`,
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Notion-Version': '2022-06-28',
+      'Content-Type': 'application/json'
+    }
+  };
+
+  return await makeRequest(options);
+}
+
+async function queryDatabase(databaseId, token) {
+  const options = {
+    hostname: 'api.notion.com',
+    port: 443,
+    path: `/v1/databases/${databaseId}/query`,
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Notion-Version': '2022-06-28',
+      'Content-Type': 'application/json',
+      'User-Agent': 'GitHub-Action-Sync'
+    }
+  };
+  
+  const requestBody = {
+    sorts: []
+  };
+  
+  return await makeRequest(options, requestBody);
+}
+
+async function getDatabaseSchema(databaseId, token) {
+  const options = {
+    hostname: 'api.notion.com',
+    port: 443,
+    path: `/v1/databases/${databaseId}`,
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Notion-Version': '2022-06-28',
+      'Content-Type': 'application/json',
+      'User-Agent': 'GitHub-Action-Sync'
+    }
+  };
+  return await makeRequest(options);
+}
+
+function formatPropertyValue(property) {
+  if (!property) return '';
+  
+  switch (property.type) {
+    case 'title':
+      return property.title.map(t => t.plain_text).join('').trim();
+    case 'rich_text':
+      return property.rich_text.map(t => {
+        let content = t.plain_text;
+        if (t.annotations.bold) content = `**${content}**`;
+        if (t.annotations.italic) content = `*${content}*`;
+        if (t.annotations.code) content = `\`${content}\``;
+        if (t.href) content = `[${content}](${t.href})`;
+        return content;
+      }).join('').trim();
+    case 'number':
+      return property.number ? property.number.toString() : '';
+    case 'select':
+      return property.select ? property.select.name : '';
+    case 'multi_select':
+      return property.multi_select.map(s => s.name).join(', ');
+    case 'date':
+      if (property.date) {
+        const date = new Date(property.date.start);
+        return date.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'short', 
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
+      return '';
+    case 'checkbox':
+      return property.checkbox ? '✅' : '❌';
+    case 'url':
+      return property.url ? `[Link](${property.url})` : '';
+    case 'email':
+      return property.email ? `[${property.email}](mailto:${property.email})` : '';
+    case 'phone_number':
+      return property.phone_number || '';
+    case 'status':
+      return property.status ? property.status.name : '';
+    case 'formula':
+      if (property.formula) {
+        switch (property.formula.type) {
+          case 'string':
+            return property.formula.string || '';
+          case 'number':
+            return property.formula.number ? property.formula.number.toString() : '';
+          case 'boolean':
+            return property.formula.boolean ? '✅' : '❌';
+          case 'date':
+            return property.formula.date ? property.formula.date.start : '';
+          default:
+            return '';
+        }
+      }
+      return '';
+    default:
+      return '';
+  }
+}
+
+function isRowCompleted(row, headers) {
+  // Check various ways a row might be marked as completed
+  
+  // 1. Check for Done/Completed checkbox columns
+  for (const header of headers) {
+    const headerLower = header.toLowerCase();
+    if (headerLower.includes('done') || 
+        headerLower.includes('completed') || 
+        headerLower.includes('check') ||
+        headerLower.includes('finish')) {
+      const value = row[header] || '';
+      if (value === '✅' || value.toLowerCase() === 'true' || 
+          value.includes('✓') || value.includes('☑')) {
+        return true;
+      }
+    }
+  }
+  
+  // 2. Check Progress column for completion indicators
+  const progressValue = row['Progress'] || '';
+  if (progressValue.includes('100%') || progressValue.includes('✅') || 
+      progressValue.toLowerCase().includes('complete')) {
+    return true;
+  }
+  
+  // 3. Check if any cell contains completion indicators
+  for (const [key, value] of Object.entries(row)) {
+    const valueStr = String(value).toLowerCase();
+    if (valueStr.includes('complete') || valueStr.includes('✅') || 
+        valueStr.includes('done') || valueStr === 'true') {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+function getDifficultyBadge(difficulty) {
+  const difficultyStr = difficulty.toLowerCase().trim();
+  switch(difficultyStr) {
+    case 'easy':
+      return '🟢 Easy';
+    case 'medium':
+      return '🟡 Medium';
+    case 'hard':
+      return '🔴 Hard';
+    default:
+      return difficulty;
+  }
+}
+
+function getTopicBadge(topic) {
+  const topicEmojis = {
+    'Arrays': '📊',
+    'Strings': '🔤',
+    'Linked Lists': '🔗',
+    'Trees': '🌳',
+    'Graphs': '🕸️',
+    'Dynamic Programming': '⚡',
+    'Sorting': '📶',
+    'Searching': '🔍',
+    'Hash Tables': '#️⃣',
+    'Stack': '📚',
+    'Queue': '🎯',
+    'Heap': '🏔️',
+    'Backtracking': '🔙',
+    'Two Pointers': '👉👈',
+    'Sliding Window': '🪟'
+  };
+  
+  return topicEmojis[topic] ? `${topicEmojis[topic]} ${topic}` : topic;
+}
+
+async function syncNotion() {
+  const token = process.env.NOTION_TOKEN;
+  const pageId = process.env.NOTION_PAGE_ID || process.env.NOTION_DATABASE_ID;
+  
+  console.log('Environment check:');
+  console.log('- NOTION_TOKEN exists:', !!token);
+  console.log('- NOTION_PAGE_ID exists:', !!process.env.NOTION_PAGE_ID);
+  console.log('- NOTION_DATABASE_ID exists:', !!process.env.NOTION_DATABASE_ID);
+  console.log('- Using Page ID:', pageId ? pageId.substring(0, 8) + '...' : 'MISSING');
+  
+  if (!token) {
+    console.error('❌ NOTION_TOKEN is missing or empty');
+    process.exit(1);
+  }
+  
+  if (!pageId) {
+    console.error('❌ NOTION_PAGE_ID is missing or empty');
+    process.exit(1);
+  }
+
+  try {
+    console.log('Fetching Notion page content...');
+    
+    // Get all blocks from the page
+    let allBlocks = [];
+    let hasMore = true;
+    let startCursor = null;
+
+    while (hasMore) {
+      const response = await getNotionBlocks(pageId, token, startCursor);
+      
+      if (response.results) {
+        allBlocks = allBlocks.concat(response.results);
+        hasMore = response.has_more;
+        startCursor = response.next_cursor;
+      } else {
+        console.error('Error fetching blocks:', response);
+        process.exit(1);
+      }
+    }
+
+    console.log(`Found ${allBlocks.length} blocks on the page`);
+
+    // Find database blocks
+    let completedData = [];
+    let allData = [];
+    let headers = [];
+    
+    console.log('Searching for database in blocks...');
+    for (let i = 0; i < allBlocks.length; i++) {
+      const block = allBlocks[i];
+      console.log(`Block ${i}: type = ${block.type}`);
+      
+      if (block.type === 'child_database') {
+        console.log('✅ Found child database block - querying database...');
+        try {
+          // Get the database schema first
+          console.log('Getting database schema...');
+          const dbSchema = await getDatabaseSchema(block.id, token);
+          console.log('Database title:', dbSchema.title?.[0]?.plain_text || 'No title');
+          console.log('Database properties:', Object.keys(dbSchema.properties || {}));
           
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+          // Query the database for all rows
+          console.log('Querying database rows...');
+          const dbData = await queryDatabase(block.id, token);
+          console.log(`Database has ${dbData.results?.length || 0} rows`);
           
-      - name: Create sync script
-        run: |
-          cat > sync-notion.js << 'EOF'
-          const https = require('https');
-          const fs = require('fs');
-
-          function makeRequest(options, postData = null) {
-            return new Promise((resolve, reject) => {
-              const req = https.request(options, (res) => {
-                let data = '';
-                res.on('data', (chunk) => data += chunk);
-                res.on('end', () => {
-                  try {
-                    resolve(JSON.parse(data));
-                  } catch (e) {
-                    resolve(data);
-                  }
-                });
+          if (dbData.results && dbData.results.length > 0) {
+            // Convert database results to usable format
+            const propertyNames = Object.keys(dbSchema.properties || {});
+            console.log('Property names:', propertyNames);
+            
+            headers = propertyNames;
+            
+            // Process each row
+            dbData.results.forEach((entry, idx) => {
+              console.log(`\nProcessing database row ${idx}:`);
+              const rowData = {};
+              
+              propertyNames.forEach(propName => {
+                const value = formatPropertyValue(entry.properties[propName]);
+                rowData[propName] = value;
+                console.log(`  ${propName}: "${value}"`);
               });
-              req.on('error', reject);
-              if (postData) req.write(JSON.stringify(postData));
-              req.end();
+              
+              allData.push(rowData);
+              
+              // Check if this row represents a completed item
+              if (isRowCompleted(rowData, propertyNames)) {
+                console.log('  ✅ Including as completed row');
+                completedData.push(rowData);
+              } else {
+                console.log('  ❌ Not marked as completed');
+              }
             });
-          }
-
-          async function getNotionBlocks(pageId, token, startCursor = null) {
-            const options = {
-              hostname: 'api.notion.com',
-              port: 443,
-              path: `/v1/blocks/${pageId}/children${startCursor ? `?start_cursor=${startCursor}` : ''}`,
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Notion-Version': '2022-06-28',
-                'Content-Type': 'application/json'
-              }
-            };
-
-            return await makeRequest(options);
-          }
-
-          async function queryDatabase(databaseId, token) {
-            const options = {
-              hostname: 'api.notion.com',
-              port: 443,
-              path: `/v1/databases/${databaseId}/query`,
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Notion-Version': '2022-06-28',
-                'Content-Type': 'application/json',
-                'User-Agent': 'GitHub-Action-Sync'
-              }
-            };
             
-            const requestBody = {
-              sorts: []
-            };
-            
-            return await makeRequest(options, requestBody);
+            console.log(`✅ Parsed database: ${headers.length} columns, ${completedData.length} completed rows out of ${allData.length} total`);
+            break; // Use the first database found
           }
+        } catch (error) {
+          console.log('Error accessing child database:', error.message);
+        }
+      }
+    }
 
-          async function getDatabaseSchema(databaseId, token) {
-            const options = {
-              hostname: 'api.notion.com',
-              port: 443,
-              path: `/v1/databases/${databaseId}`,
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Notion-Version': '2022-06-28',
-                'Content-Type': 'application/json',
-                'User-Agent': 'GitHub-Action-Sync'
-              }
-            };
-            return await makeRequest(options);
-          }
+    // Build markdown based on what we found
+    let markdown = '';
+    
+    if (completedData.length > 0) {
+      // Standard LeetCode progress format
+      markdown = '## 🧠 LeetCode Progress\n\n';
+      
+      const totalCompleted = completedData.length;
+      markdown += `**Progress:** ${totalCompleted} problems completed\n\n`;
 
-          function formatPropertyValue(property) {
-            if (!property) return '';
+      // Create a simple table with available data
+      const relevantColumns = headers.filter(h => 
+        !h.toLowerCase().includes('property') && h !== 'Property'
+      );
+      
+      if (relevantColumns.length > 0) {
+        markdown += '| ' + relevantColumns.join(' | ') + ' |\n';
+        markdown += '| ' + relevantColumns.map(() => '---').join(' | ') + ' |\n';
+
+        completedData.forEach(row => {
+          const rowData = relevantColumns.map(col => {
+            let value = row[col] || '';
             
-            switch (property.type) {
-              case 'title':
-                return property.title.map(t => t.plain_text).join('').trim();
-              case 'rich_text':
-                return property.rich_text.map(t => {
-                  let content = t.plain_text;
-                  if (t.annotations.bold) content = `**${content}**`;
-                  if (t.annotations.italic) content = `*${content}*`;
-                  if (t.annotations.code) content = `\`${content}\``;
-                  if (t.href) content = `[${content}](${t.href})`;
-                  return content;
-                }).join('').trim();
-              case 'number':
-                return property.number ? property.number.toString() : '';
-              case 'select':
-                return property.select ? property.select.name : '';
-              case 'multi_select':
-                return property.multi_select.map(s => s.name).join(', ');
-              case 'date':
-                if (property.date) {
-                  const date = new Date(property.date.start);
-                  return date.toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'short', 
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true
-                  });
-                }
-                return '';
-              case 'checkbox':
-                return property.checkbox ? '✅' : '❌';
-              case 'url':
-                return property.url ? `[Link](${property.url})` : '';
-              case 'email':
-                return property.email ? `[${property.email}](mailto:${property.email})` : '';
-              case 'phone_number':
-                return property.phone_number || '';
-              case 'status':
-                return property.status ? property.status.name : '';
-              case 'formula':
-                if (property.formula) {
-                  switch (property.formula.type) {
-                    case 'string':
-                      return property.formula.string || '';
-                    case 'number':
-                      return property.formula.number ? property.formula.number.toString() : '';
-                    case 'boolean':
-                      return property.formula.boolean ? '✅' : '❌';
-                    case 'date':
-                      return property.formula.date ? property.formula.date.start : '';
-                    default:
-                      return '';
-                  }
-                }
-                return '';
-              default:
-                return '';
-            }
-          }
-
-          function formatRichText(richText) {
-            if (!richText || !Array.isArray(richText)) return '';
-            return richText.map(text => {
-              let content = text.plain_text;
-              if (text.annotations.bold) content = `**${content}**`;
-              if (text.annotations.italic) content = `*${content}*`;
-              if (text.annotations.code) content = `\`${content}\``;
-              if (text.annotations.strikethrough) content = `~~${content}~~`;
-              if (text.href) content = `[${content}](${text.href})`;
-              return content;
-            }).join('');
-          }
-
-          function getDifficultyBadge(difficulty) {
-            const difficultyStr = difficulty.toLowerCase().trim();
-            switch(difficultyStr) {
-              case 'easy':
-                return '🟢 Easy';
-              case 'medium':
-                return '🟡 Medium';
-              case 'hard':
-                return '🔴 Hard';
-              default:
-                return difficulty;
-            }
-          }
-
-          function getTopicBadge(topic) {
-            const topicEmojis = {
-              'Arrays': '📊',
-              'Strings': '🔤',
-              'Linked Lists': '🔗',
-              'Trees': '🌳',
-              'Graphs': '🕸️',
-              'Dynamic Programming': '⚡',
-              'Sorting': '📶',
-              'Searching': '🔍',
-              'Hash Tables': '#️⃣',
-              'Stack': '📚',
-              'Queue': '🎯',
-              'Heap': '🏔️',
-              'Backtracking': '🔙',
-              'Two Pointers': '👉👈',
-              'Sliding Window': '🪟'
-            };
-            
-            return topicEmojis[topic] ? `${topicEmojis[topic]} ${topic}` : topic;
-          }
-
-          function parseTableData(tableRows) {
-            if (!tableRows || tableRows.length === 0) return { headers: [], data: [] };
-            
-            const headers = [];
-            const data = [];
-            let headerProcessed = false;
-            
-            console.log(`Parsing ${tableRows.length} table rows...`);
-            
-            for (let i = 0; i < tableRows.length; i++) {
-              const row = tableRows[i];
-              console.log(`Processing row ${i}: type = ${row.type}`);
-              
-              if (row.type === 'table_row' && row.table_row && row.table_row.cells) {
-                const cells = row.table_row.cells.map(cell => formatRichText(cell).trim());
-                console.log(`Row ${i} cells:`, cells);
-                
-                if (!headerProcessed) {
-                  // First row is header
-                  headers.push(...cells);
-                  headerProcessed = true;
-                  console.log('✅ Table headers found:', headers);
-                } else {
-                  // Data rows
-                  const rowData = {};
-                  cells.forEach((cell, index) => {
-                    if (index < headers.length) {
-                      rowData[headers[index]] = cell;
-                    }
-                  });
-                  
-                  console.log(`Row ${i} data:`, rowData);
-                  
-                  // Look for Done column in different possible positions and names
-                  let doneValue = '';
-                  let doneFound = false;
-                  
-                  // Try different variations of the Done column
-                  for (const header of headers) {
-                    if (header.toLowerCase().includes('done') || 
-                        header.toLowerCase().includes('completed') ||
-                        header.toLowerCase().includes('check')) {
-                      doneValue = rowData[header] || '';
-                      doneFound = true;
-                      console.log(`Found Done column "${header}" with value: "${doneValue}"`);
-                      break;
-                    }
-                  }
-                  
-                  if (!doneFound) {
-                    // Try by position - Done might be in a specific column
-                    console.log('No Done column found by name, checking all cells for checkmarks...');
-                    cells.forEach((cell, idx) => {
-                      console.log(`Cell ${idx} (${headers[idx] || 'unknown'}): "${cell}"`);
-                      if (cell.includes('✅') || cell.includes('☑') || cell.includes('✓') || 
-                          cell === 'true' || cell.toLowerCase() === 'yes') {
-                        doneValue = cell;
-                        doneFound = true;
-                        console.log(`Found checkmark in column ${idx}: "${cell}"`);
-                      }
-                    });
-                  }
-                  
-                  // Check for actual checkmark symbols or "true" values
-                  if (doneValue.includes('✅') || doneValue.includes('☑') || 
-                      doneValue.includes('✓') || doneValue === 'true' ||
-                      doneValue.toLowerCase() === 'yes') {
-                    console.log('✅ Including completed row');
-                    data.push(rowData);
-                  } else {
-                    console.log('❌ Skipping uncompleted row');
-                  }
-                }
-              }
+            // Clean up the value for display
+            if (col.toLowerCase().includes('difficulty') && value) {
+              value = getDifficultyBadge(value);
+            } else if (col.toLowerCase().includes('topic') && value) {
+              value = getTopicBadge(value);
             }
             
-            console.log(`Final result: ${headers.length} headers, ${data.length} completed rows`);
-            return { headers, data };
-          }
-
-          async function syncNotion() {
-            const token = process.env.NOTION_TOKEN;
-            const pageId = process.env.NOTION_PAGE_ID || process.env.NOTION_DATABASE_ID;
-            
-            console.log('Environment check:');
-            console.log('- NOTION_TOKEN exists:', !!token);
-            console.log('- NOTION_PAGE_ID exists:', !!process.env.NOTION_PAGE_ID);
-            console.log('- NOTION_DATABASE_ID exists:', !!process.env.NOTION_DATABASE_ID);
-            console.log('- Using Page ID:', pageId ? pageId.substring(0, 8) + '...' : 'MISSING');
-            
-            if (!token) {
-              console.error('❌ NOTION_TOKEN is missing or empty');
-              process.exit(1);
-            }
-            
-            if (!pageId) {
-              console.error('❌ NOTION_PAGE_ID is missing or empty');
-              console.error('📋 Please add NOTION_PAGE_ID to your GitHub repository secrets');
-              console.error('💡 To find your page ID:');
-              console.error('   1. Open your Notion page in browser');
-              console.error('   2. Copy the URL');
-              console.error('   3. Extract the 32-character ID from the URL');
-              console.error('   Example: https://notion.so/myworkspace/Page-Name-abc123...xyz789');
-              console.error('   Page ID would be: abc123...xyz789');
-              process.exit(1);
-            }
-
-            try {
-              console.log('Fetching Notion page content...');
-              
-              // Get all blocks from the page
-              let allBlocks = [];
-              let hasMore = true;
-              let startCursor = null;
-
-              while (hasMore) {
-                const response = await getNotionBlocks(pageId, token, startCursor);
-                
-                if (response.results) {
-                  allBlocks = allBlocks.concat(response.results);
-                  hasMore = response.has_more;
-                  startCursor = response.next_cursor;
-                } else {
-                  console.error('Error fetching blocks:', response);
-                  process.exit(1);
-                }
-              }
-
-              console.log(`Found ${allBlocks.length} blocks on the page`);
-
-              // Find table blocks or databases
-              let tableData = { headers: [], data: [] };
-              
-              console.log('Searching for table/database in blocks...');
-              for (let i = 0; i < allBlocks.length; i++) {
-                const block = allBlocks[i];
-                console.log(`Block ${i}: type = ${block.type}`);
-                
-                if (block.type === 'table') {
-                  console.log('✅ Found table block, fetching rows...');
-                  const tableRows = await getChildBlocks(block.id, token);
-                  console.log(`Table has ${tableRows.results?.length || 0} rows`);
-                  
-                  if (tableRows.results && tableRows.results.length > 0) {
-                    // Log first few rows to see the structure
-                    console.log('First 3 table rows structure:');
-                    tableRows.results.slice(0, 3).forEach((row, idx) => {
-                      if (row.type === 'table_row' && row.table_row?.cells) {
-                        const cells = row.table_row.cells.map(cell => formatRichText(cell).trim());
-                        console.log(`Row ${idx}:`, cells);
-                      }
-                    });
-                    
-                    tableData = parseTableData(tableRows.results);
-                    console.log(`✅ Parsed table: ${tableData.headers.length} columns, ${tableData.data.length} completed rows`);
-                    break; // Use the first table found
-                  }
-                } else if (block.type === 'child_database') {
-                  console.log('✅ Found child database block - querying database...');
-                  try {
-                    // Get the database schema first
-                    console.log('Getting database schema...');
-                    const dbSchema = await getDatabaseSchema(block.id, token);
-                    console.log('Database title:', dbSchema.title?.[0]?.plain_text || 'No title');
-                    console.log('Database properties:', Object.keys(dbSchema.properties || {}));
-                    
-                    // Query the database for all rows
-                    console.log('Querying database rows...');
-                    const dbData = await queryDatabase(block.id, token);
-                    console.log(`Database has ${dbData.results?.length || 0} rows`);
-                    
-                    if (dbData.results && dbData.results.length > 0) {
-                      // Convert database results to table format
-                      const propertyNames = Object.keys(dbSchema.properties || {});
-                      console.log('Property names:', propertyNames);
-                      
-                      // Set headers from property names
-                      tableData.headers = propertyNames;
-                      
-                      // Process each row
-                      dbData.results.forEach((entry, idx) => {
-                        console.log(`\nProcessing database row ${idx}:`);
-                        const rowData = {};
-                        
-                        propertyNames.forEach(propName => {
-                          const value = formatPropertyValue(entry.properties[propName]);
-                          rowData[propName] = value;
-                          console.log(`  ${propName}: "${value}"`);
-                        });
-                        
-                        // Check for completion - look for Done column
-                        const doneValue = rowData['Done'] || rowData['done'] || '';
-                        console.log(`  Done value: "${doneValue}"`);
-                        
-                        if (doneValue === '✅' || doneValue.toLowerCase() === 'true') {
-                          console.log('  ✅ Including completed row');
-                          tableData.data.push(rowData);
-                        } else {
-                          console.log('  ❌ Skipping uncompleted row');
-                        }
-                      });
-                      
-                      console.log(`✅ Parsed database: ${tableData.headers.length} columns, ${tableData.data.length} completed rows`);
-                      break; // Use the first database found
-                    }
-                  } catch (error) {
-                    console.log('Error accessing child database:', error.message);
-                  }
-                }
-              }
-
-              if (tableData.data.length === 0) {
-                console.log('No completed problems found in the table');
-                return;
-              }
-
-              // Build the markdown output
-              let markdown = '## 🧠 Blind 75 LeetCode Progress\n\n';
-              
-              // Add summary stats
-              const totalCompleted = tableData.data.length;
-              const difficultyStats = { easy: 0, medium: 0, hard: 0 };
-              const topicStats = {};
-              
-              tableData.data.forEach(row => {
-                const difficulty = (row['Difficulty'] || '').toLowerCase().trim();
-                const topic = row['Topic'] || '';
-                
-                if (difficulty && difficultyStats.hasOwnProperty(difficulty)) {
-                  difficultyStats[difficulty]++;
-                }
-                
-                if (topic) {
-                  topicStats[topic] = (topicStats[topic] || 0) + 1;
-                }
-              });
-
-              markdown += `**Progress:** ${totalCompleted}/75 problems completed (${Math.round(totalCompleted/75*100)}%)\n\n`;
-              markdown += `**By Difficulty:** 🟢 ${difficultyStats.easy} Easy | 🟡 ${difficultyStats.medium} Medium | 🔴 ${difficultyStats.hard} Hard\n\n`;
-
-              // Define the desired column order for display (only the important ones)
-              const desiredColumns = [
-                'Problem Name & Link',
-                'Topic', 
-                'Difficulty',
-                'Time & Space Complexity',
-                'Languages',
-                'Date Edited / Completed'
-              ];
-
-              // Map original headers to desired columns (handle variations in naming)
-              const columnMapping = {};
-              tableData.headers.forEach(header => {
-                const cleanHeader = header.trim();
-                if (cleanHeader.toLowerCase().includes('problem')) {
-                  columnMapping['Problem Name & Link'] = cleanHeader;
-                } else if (cleanHeader.toLowerCase().includes('topic')) {
-                  columnMapping['Topic'] = cleanHeader;
-                } else if (cleanHeader.toLowerCase().includes('difficulty')) {
-                  columnMapping['Difficulty'] = cleanHeader;
-                } else if (cleanHeader.toLowerCase().includes('complexity') || cleanHeader.toLowerCase().includes('time')) {
-                  columnMapping['Time & Space Complexity'] = cleanHeader;
-                } else if (cleanHeader.toLowerCase().includes('language')) {
-                  columnMapping['Languages'] = cleanHeader;
-                } else if (cleanHeader.toLowerCase().includes('date')) {
-                  columnMapping['Date Edited / Completed'] = cleanHeader;
-                }
-              });
-
-              console.log('Column mapping:', columnMapping);
-
-              // Create display headers (shortened for better formatting)
-              const displayHeaders = desiredColumns.map(col => {
-                switch(col) {
-                  case 'Problem Name & Link': return 'Problem';
-                  case 'Time & Space Complexity': return 'Complexity';
-                  case 'Date Edited / Completed': return 'Date';
-                  default: return col;
-                }
-              }).filter(header => {
-                // Only include columns that exist in the original table
-                const originalCol = desiredColumns.find(col => {
-                  const mappedHeader = columnMapping[col];
-                  return mappedHeader && tableData.headers.includes(mappedHeader);
-                });
-                return !!originalCol;
-              });
-
-              // Create the actual column keys we'll use
-              const actualColumns = desiredColumns.filter(col => columnMapping[col]);
-
-              if (actualColumns.length === 0) {
-                console.log('No matching columns found. Available headers:', tableData.headers);
-                return;
-              }
-
-              markdown += '| ' + displayHeaders.join(' | ') + ' |\n';
-              markdown += '| ' + displayHeaders.map(() => '---').join(' | ') + ' |\n';
-
-              // Add data rows (only completed ones)
-              tableData.data.forEach(row => {
-                const rowData = actualColumns.map(col => {
-                  const originalHeader = columnMapping[col];
-                  let value = row[originalHeader] || '';
-                  
-                  // Special formatting for specific columns
-                  if (col === 'Difficulty' && value) {
-                    value = getDifficultyBadge(value);
-                  } else if (col === 'Topic' && value) {
-                    value = getTopicBadge(value);
-                  } else if (col === 'Languages' && value) {
-                    // Format language tags nicely
-                    value = value.split(',').map(lang => `\`${lang.trim()}\``).join(' ');
-                  } else if (col.includes('Problem') && value && value.length > 35 && !value.includes('[')) {
-                    // Truncate very long problem names if they're not already links
-                    value = value.substring(0, 32) + '...';
-                  }
-                  
-                  // Escape pipe characters and handle empty values
-                  return value.replace(/\|/g, '\\|') || '-';
-                });
-                
-                markdown += '| ' + rowData.join(' | ') + ' |\n';
-              });
-
-              // Add metadata
-              const now = new Date();
-              const lastUpdated = now.toLocaleString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true,
-                timeZone: 'America/New_York'
-              });
-              
-              markdown += `\n---\n\n*📅 Last synced: ${lastUpdated} EST*\n`;
-              markdown += `*🎯 Keep grinding! You're ${Math.round((75-totalCompleted)/75*100)}% away from completing all 75 problems.*\n`;
-
-              // Read existing README or create new one
-              let readme = '';
-              if (fs.existsSync('README.md')) {
-                readme = fs.readFileSync('README.md', 'utf8');
-              } else {
-                readme = '# Welcome to my GitHub Profile!\n\n';
-              }
-
-              // Update content between markers
-              const startMarker = '<!-- NOTION-SYNC-START -->';
-              const endMarker = '<!-- NOTION-SYNC-END -->';
-              
-              const startIndex = readme.indexOf(startMarker);
-              const endIndex = readme.indexOf(endMarker);
-
-              if (startIndex !== -1 && endIndex !== -1) {
-                // Replace content between markers
-                const before = readme.substring(0, startIndex + startMarker.length);
-                const after = readme.substring(endIndex);
-                readme = before + '\n\n' + markdown + '\n' + after;
-              } else {
-                // If markers don't exist, add them and content at the end
-                readme += `\n\n${startMarker}\n\n${markdown}\n${endMarker}\n`;
-              }
-
-              fs.writeFileSync('README.md', readme);
-              console.log('✅ README updated successfully with completed LeetCode problems!');
-
-            } catch (error) {
-              console.error('❌ Error syncing Notion:', error.message);
-              if (error.response) {
-                console.error('Response:', error.response);
-              }
-              process.exit(1);
-            }
-          }
-
-          syncNotion();
-          EOF
+            // Escape pipe characters and handle empty values
+            return value.replace(/\|/g, '\\|') || '-';
+          });
           
-      - name: Sync Notion content
-        env:
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
-          NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
-        run: node sync-notion.js
+          markdown += '| ' + rowData.join(' | ') + ' |\n';
+        });
+      }
+    } else {
+      // Show general progress information
+      markdown = '## 📊 Progress Dashboard\n\n';
+      
+      if (allData.length > 0) {
+        // Show summary of what we found
+        markdown += `**Total Items:** ${allData.length}\n\n`;
         
-      - name: Commit and push changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add README.md
+        // Show the data we have (even if not marked as completed)
+        if (headers.length > 0) {
+          const relevantColumns = headers.filter(h => 
+            !h.toLowerCase().includes('property') && h !== 'Property'
+          );
           
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "🔄 Auto-sync LeetCode progress - $(date '+%Y-%m-%d %H:%M')"
-            git push
-            echo "✅ Changes pushed to repository"
-          fi
+          markdown += '### Current Status\n\n';
+          markdown += '| ' + relevantColumns.join(' | ') + ' |\n';
+          markdown += '| ' + relevantColumns.map(() => '---').join(' | ') + ' |\n';
+
+          allData.forEach(row => {
+            const rowData = relevantColumns.map(col => {
+              let value = row[col] || '';
+              return value.replace(/\|/g, '\\|') || '-';
+            });
+            
+            markdown += '| ' + rowData.join(' | ') + ' |\n';
+          });
+        }
+      } else {
+        markdown += '*No data found in the database.*\n\n';
+        markdown += '💡 **Tip:** Make sure your Notion database has some entries and is properly configured.\n';
+      }
+    }
+
+    // Add metadata
+    const now = new Date();
+    const lastUpdated = now.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'America/New_York'
+    });
+    
+    markdown += `\n---\n\n*📅 Last synced: ${lastUpdated} EST*\n`;
+
+    // Read existing README or create new one
+    let readme = '';
+    if (fs.existsSync('README.md')) {
+      readme = fs.readFileSync('README.md', 'utf8');
+    } else {
+      readme = '# Welcome to my GitHub Profile!\n\n';
+    }
+
+    // Update content between markers
+    const startMarker = '<!-- NOTION-SYNC-START -->';
+    const endMarker = '<!-- NOTION-SYNC-END -->';
+    
+    const startIndex = readme.indexOf(startMarker);
+    const endIndex = readme.indexOf(endMarker);
+
+    if (startIndex !== -1 && endIndex !== -1) {
+      // Replace content between markers
+      const before = readme.substring(0, startIndex + startMarker.length);
+      const after = readme.substring(endIndex);
+      readme = before + '\n\n' + markdown + '\n' + after;
+    } else {
+      // If markers don't exist, add them and content at the end
+      readme += `\n\n${startMarker}\n\n${markdown}\n${endMarker}\n`;
+    }
+
+    fs.writeFileSync('README.md', readme);
+    console.log('✅ README updated successfully!');
+
+  } catch (error) {
+    console.error('❌ Error syncing Notion:', error.message);
+    if (error.response) {
+      console.error('Response:', error.response);
+    }
+    process.exit(1);
+  }
+}
+
+syncNotion();
