@@ -146,6 +146,7 @@ jobs:
                   // First row is header
                   headers.push(...cells);
                   headerProcessed = true;
+                  console.log('Table headers found:', headers);
                 } else {
                   // Data rows
                   const rowData = {};
@@ -155,9 +156,16 @@ jobs:
                     }
                   });
                   
-                  // Only include rows where "Done" column is checked (✅)
-                  const doneValue = rowData['Done'] || '';
-                  if (doneValue.includes('✅') || doneValue.toLowerCase().includes('true')) {
+                  // Only include rows where "Done" column has a checkmark
+                  // Look for the Done column in different possible names
+                  const doneValue = rowData['Done'] || rowData['done'] || '';
+                  console.log('Checking row - Done value:', doneValue);
+                  
+                  // Check for actual checkmark symbols or "true" values
+                  if (doneValue.includes('✅') || doneValue.includes('☑') || 
+                      doneValue.includes('✓') || doneValue === 'true' ||
+                      doneValue.toLowerCase() === 'yes') {
+                    console.log('Including completed row:', rowData);
                     data.push(rowData);
                   }
                 }
@@ -261,35 +269,82 @@ jobs:
               markdown += `**Progress:** ${totalCompleted}/75 problems completed (${Math.round(totalCompleted/75*100)}%)\n\n`;
               markdown += `**By Difficulty:** 🟢 ${difficultyStats.easy} Easy | 🟡 ${difficultyStats.medium} Medium | 🔴 ${difficultyStats.hard} Hard\n\n`;
 
-              // Create the table with original headers but make some more concise
-              const displayHeaders = tableData.headers.map(header => {
-                switch(header) {
+              // Define the desired column order for display (only the important ones)
+              const desiredColumns = [
+                'Problem Name & Link',
+                'Topic', 
+                'Difficulty',
+                'Time & Space Complexity',
+                'Languages',
+                'Date Edited / Completed'
+              ];
+
+              // Map original headers to desired columns (handle variations in naming)
+              const columnMapping = {};
+              tableData.headers.forEach(header => {
+                const cleanHeader = header.trim();
+                if (cleanHeader.toLowerCase().includes('problem')) {
+                  columnMapping['Problem Name & Link'] = cleanHeader;
+                } else if (cleanHeader.toLowerCase().includes('topic')) {
+                  columnMapping['Topic'] = cleanHeader;
+                } else if (cleanHeader.toLowerCase().includes('difficulty')) {
+                  columnMapping['Difficulty'] = cleanHeader;
+                } else if (cleanHeader.toLowerCase().includes('complexity') || cleanHeader.toLowerCase().includes('time')) {
+                  columnMapping['Time & Space Complexity'] = cleanHeader;
+                } else if (cleanHeader.toLowerCase().includes('language')) {
+                  columnMapping['Languages'] = cleanHeader;
+                } else if (cleanHeader.toLowerCase().includes('date')) {
+                  columnMapping['Date Edited / Completed'] = cleanHeader;
+                }
+              });
+
+              console.log('Column mapping:', columnMapping);
+
+              // Create display headers (shortened for better formatting)
+              const displayHeaders = desiredColumns.map(col => {
+                switch(col) {
                   case 'Problem Name & Link': return 'Problem';
                   case 'Time & Space Complexity': return 'Complexity';
                   case 'Date Edited / Completed': return 'Date';
-                  default: return header;
+                  default: return col;
                 }
+              }).filter(header => {
+                // Only include columns that exist in the original table
+                const originalCol = desiredColumns.find(col => {
+                  const mappedHeader = columnMapping[col];
+                  return mappedHeader && tableData.headers.includes(mappedHeader);
+                });
+                return !!originalCol;
               });
+
+              // Create the actual column keys we'll use
+              const actualColumns = desiredColumns.filter(col => columnMapping[col]);
+
+              if (actualColumns.length === 0) {
+                console.log('No matching columns found. Available headers:', tableData.headers);
+                return;
+              }
 
               markdown += '| ' + displayHeaders.join(' | ') + ' |\n';
               markdown += '| ' + displayHeaders.map(() => '---').join(' | ') + ' |\n';
 
-              // Add data rows
+              // Add data rows (only completed ones)
               tableData.data.forEach(row => {
-                const rowData = tableData.headers.map(header => {
-                  let value = row[header] || '';
+                const rowData = actualColumns.map(col => {
+                  const originalHeader = columnMapping[col];
+                  let value = row[originalHeader] || '';
                   
                   // Special formatting for specific columns
-                  if (header === 'Difficulty' && value) {
+                  if (col === 'Difficulty' && value) {
                     value = getDifficultyBadge(value);
-                  } else if (header === 'Topic' && value) {
+                  } else if (col === 'Topic' && value) {
                     value = getTopicBadge(value);
-                  } else if (header === 'Languages' && value) {
+                  } else if (col === 'Languages' && value) {
                     // Format language tags nicely
                     value = value.split(',').map(lang => `\`${lang.trim()}\``).join(' ');
-                  } else if (header.includes('Problem') && value && value.length > 30 && !value.includes('[')) {
+                  } else if (col.includes('Problem') && value && value.length > 35 && !value.includes('[')) {
                     // Truncate very long problem names if they're not already links
-                    value = value.substring(0, 27) + '...';
+                    value = value.substring(0, 32) + '...';
                   }
                   
                   // Escape pipe characters and handle empty values
