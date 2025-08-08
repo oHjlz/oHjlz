@@ -1,440 +1,379 @@
-const https = require('https');
-const fs = require('fs');
+name: Sync Notion to README
 
-function makeRequest(options, postData = null) {
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          resolve(data);
-        }
-      });
-    });
-    req.on('error', reject);
-    if (postData) req.write(JSON.stringify(postData));
-    req.end();
-  });
-}
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:  # Manual trigger button
+  push:
+    paths:
+      - '.github/workflows/notion-sync.yml'  # Run when workflow is updated
 
-async function getNotionBlocks(pageId, token, startCursor = null) {
-  const options = {
-    hostname: 'api.notion.com',
-    port: 443,
-    path: `/v1/blocks/${pageId}/children${startCursor ? `?start_cursor=${startCursor}` : ''}`,
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Notion-Version': '2022-06-28',
-      'Content-Type': 'application/json'
-    }
-  };
-
-  return await makeRequest(options);
-}
-
-async function queryDatabase(databaseId, token) {
-  const options = {
-    hostname: 'api.notion.com',
-    port: 443,
-    path: `/v1/databases/${databaseId}/query`,
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Notion-Version': '2022-06-28',
-      'Content-Type': 'application/json',
-      'User-Agent': 'GitHub-Action-Sync'
-    }
-  };
-  
-  const requestBody = {
-    sorts: []
-  };
-  
-  return await makeRequest(options, requestBody);
-}
-
-async function getDatabaseSchema(databaseId, token) {
-  const options = {
-    hostname: 'api.notion.com',
-    port: 443,
-    path: `/v1/databases/${databaseId}`,
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Notion-Version': '2022-06-28',
-      'Content-Type': 'application/json',
-      'User-Agent': 'GitHub-Action-Sync'
-    }
-  };
-  return await makeRequest(options);
-}
-
-function formatPropertyValue(property) {
-  if (!property) return '';
-  
-  switch (property.type) {
-    case 'title':
-      return property.title.map(t => t.plain_text).join('').trim();
-    case 'rich_text':
-      return property.rich_text.map(t => {
-        let content = t.plain_text;
-        if (t.annotations.bold) content = `**${content}**`;
-        if (t.annotations.italic) content = `*${content}*`;
-        if (t.annotations.code) content = `\`${content}\``;
-        if (t.href) content = `[${content}](${t.href})`;
-        return content;
-      }).join('').trim();
-    case 'number':
-      return property.number ? property.number.toString() : '';
-    case 'select':
-      return property.select ? property.select.name : '';
-    case 'multi_select':
-      return property.multi_select.map(s => s.name).join(', ');
-    case 'date':
-      if (property.date) {
-        const date = new Date(property.date.start);
-        return date.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'short', 
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true
-        });
-      }
-      return '';
-    case 'checkbox':
-      return property.checkbox ? '✅' : '❌';
-    case 'url':
-      return property.url ? `[Link](${property.url})` : '';
-    case 'email':
-      return property.email ? `[${property.email}](mailto:${property.email})` : '';
-    case 'phone_number':
-      return property.phone_number || '';
-    case 'status':
-      return property.status ? property.status.name : '';
-    case 'formula':
-      if (property.formula) {
-        switch (property.formula.type) {
-          case 'string':
-            return property.formula.string || '';
-          case 'number':
-            return property.formula.number ? property.formula.number.toString() : '';
-          case 'boolean':
-            return property.formula.boolean ? '✅' : '❌';
-          case 'date':
-            return property.formula.date ? property.formula.date.start : '';
-          default:
-            return '';
-        }
-      }
-      return '';
-    default:
-      return '';
-  }
-}
-
-function isRowCompleted(row, headers) {
-  // Check various ways a row might be marked as completed
-  
-  // 1. Check for Done/Completed checkbox columns
-  for (const header of headers) {
-    const headerLower = header.toLowerCase();
-    if (headerLower.includes('done') || 
-        headerLower.includes('completed') || 
-        headerLower.includes('check') ||
-        headerLower.includes('finish')) {
-      const value = row[header] || '';
-      if (value === '✅' || value.toLowerCase() === 'true' || 
-          value.includes('✓') || value.includes('☑')) {
-        return true;
-      }
-    }
-  }
-  
-  // 2. Check Progress column for completion indicators
-  const progressValue = row['Progress'] || '';
-  if (progressValue.includes('100%') || progressValue.includes('✅') || 
-      progressValue.toLowerCase().includes('complete')) {
-    return true;
-  }
-  
-  // 3. Check if any cell contains completion indicators
-  for (const [key, value] of Object.entries(row)) {
-    const valueStr = String(value).toLowerCase();
-    if (valueStr.includes('complete') || valueStr.includes('✅') || 
-        valueStr.includes('done') || valueStr === 'true') {
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-function getDifficultyBadge(difficulty) {
-  const difficultyStr = difficulty.toLowerCase().trim();
-  switch(difficultyStr) {
-    case 'easy':
-      return '🟢 Easy';
-    case 'medium':
-      return '🟡 Medium';
-    case 'hard':
-      return '🔴 Hard';
-    default:
-      return difficulty;
-  }
-}
-
-function getTopicBadge(topic) {
-  const topicEmojis = {
-    'Arrays': '📊',
-    'Strings': '🔤',
-    'Linked Lists': '🔗',
-    'Trees': '🌳',
-    'Graphs': '🕸️',
-    'Dynamic Programming': '⚡',
-    'Sorting': '📶',
-    'Searching': '🔍',
-    'Hash Tables': '#️⃣',
-    'Stack': '📚',
-    'Queue': '🎯',
-    'Heap': '🏔️',
-    'Backtracking': '🔙',
-    'Two Pointers': '👉👈',
-    'Sliding Window': '🪟'
-  };
-  
-  return topicEmojis[topic] ? `${topicEmojis[topic]} ${topic}` : topic;
-}
-
-async function syncNotion() {
-  const token = process.env.NOTION_TOKEN;
-  const pageId = process.env.NOTION_PAGE_ID || process.env.NOTION_DATABASE_ID;
-  
-  console.log('Environment check:');
-  console.log('- NOTION_TOKEN exists:', !!token);
-  console.log('- NOTION_PAGE_ID exists:', !!process.env.NOTION_PAGE_ID);
-  console.log('- NOTION_DATABASE_ID exists:', !!process.env.NOTION_DATABASE_ID);
-  console.log('- Using Page ID:', pageId ? pageId.substring(0, 8) + '...' : 'MISSING');
-  
-  if (!token) {
-    console.error('❌ NOTION_TOKEN is missing or empty');
-    process.exit(1);
-  }
-  
-  if (!pageId) {
-    console.error('❌ NOTION_PAGE_ID is missing or empty');
-    process.exit(1);
-  }
-
-  try {
-    console.log('Fetching Notion page content...');
-    
-    // Get all blocks from the page
-    let allBlocks = [];
-    let hasMore = true;
-    let startCursor = null;
-
-    while (hasMore) {
-      const response = await getNotionBlocks(pageId, token, startCursor);
-      
-      if (response.results) {
-        allBlocks = allBlocks.concat(response.results);
-        hasMore = response.has_more;
-        startCursor = response.next_cursor;
-      } else {
-        console.error('Error fetching blocks:', response);
-        process.exit(1);
-      }
-    }
-
-    console.log(`Found ${allBlocks.length} blocks on the page`);
-
-    // Find database blocks
-    let completedData = [];
-    let allData = [];
-    let headers = [];
-    
-    console.log('Searching for database in blocks...');
-    for (let i = 0; i < allBlocks.length; i++) {
-      const block = allBlocks[i];
-      console.log(`Block ${i}: type = ${block.type}`);
-      
-      if (block.type === 'child_database') {
-        console.log('✅ Found child database block - querying database...');
-        try {
-          // Get the database schema first
-          console.log('Getting database schema...');
-          const dbSchema = await getDatabaseSchema(block.id, token);
-          console.log('Database title:', dbSchema.title?.[0]?.plain_text || 'No title');
-          console.log('Database properties:', Object.keys(dbSchema.properties || {}));
+jobs:
+  sync-notion:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           
-          // Query the database for all rows
-          console.log('Querying database rows...');
-          const dbData = await queryDatabase(block.id, token);
-          console.log(`Database has ${dbData.results?.length || 0} rows`);
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
           
-          if (dbData.results && dbData.results.length > 0) {
-            // Convert database results to usable format
-            const propertyNames = Object.keys(dbSchema.properties || {});
-            console.log('Property names:', propertyNames);
-            
-            headers = propertyNames;
-            
-            // Process each row
-            dbData.results.forEach((entry, idx) => {
-              console.log(`\nProcessing database row ${idx}:`);
-              const rowData = {};
-              
-              propertyNames.forEach(propName => {
-                const value = formatPropertyValue(entry.properties[propName]);
-                rowData[propName] = value;
-                console.log(`  ${propName}: "${value}"`);
+      - name: Create sync script
+        run: |
+          cat > sync-notion.js << 'EOF'
+          const https = require('https');
+          const fs = require('fs');
+
+          function makeRequest(options, postData = null) {
+            return new Promise((resolve, reject) => {
+              const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => data += chunk);
+                res.on('end', () => {
+                  try {
+                    resolve(JSON.parse(data));
+                  } catch (e) {
+                    resolve(data);
+                  }
+                });
               });
-              
-              allData.push(rowData);
-              
-              // Check if this row represents a completed item
-              if (isRowCompleted(rowData, propertyNames)) {
-                console.log('  ✅ Including as completed row');
-                completedData.push(rowData);
-              } else {
-                console.log('  ❌ Not marked as completed');
-              }
+              req.on('error', reject);
+              if (postData) req.write(JSON.stringify(postData));
+              req.end();
             });
-            
-            console.log(`✅ Parsed database: ${headers.length} columns, ${completedData.length} completed rows out of ${allData.length} total`);
-            break; // Use the first database found
           }
-        } catch (error) {
-          console.log('Error accessing child database:', error.message);
-        }
-      }
-    }
 
-    // Build markdown based on what we found
-    let markdown = '';
-    
-    if (completedData.length > 0) {
-      // Standard LeetCode progress format
-      markdown = '## 🧠 LeetCode Progress\n\n';
-      
-      const totalCompleted = completedData.length;
-      markdown += `**Progress:** ${totalCompleted} problems completed\n\n`;
+          async function getNotionBlocks(pageId, token, startCursor = null) {
+            const options = {
+              hostname: 'api.notion.com',
+              port: 443,
+              path: `/v1/blocks/${pageId}/children${startCursor ? `?start_cursor=${startCursor}` : ''}`,
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Notion-Version': '2022-06-28',
+                'Content-Type': 'application/json'
+              }
+            };
 
-      // Create a simple table with available data
-      const relevantColumns = headers.filter(h => 
-        !h.toLowerCase().includes('property') && h !== 'Property'
-      );
-      
-      if (relevantColumns.length > 0) {
-        markdown += '| ' + relevantColumns.join(' | ') + ' |\n';
-        markdown += '| ' + relevantColumns.map(() => '---').join(' | ') + ' |\n';
+            return await makeRequest(options);
+          }
 
-        completedData.forEach(row => {
-          const rowData = relevantColumns.map(col => {
-            let value = row[col] || '';
+          async function queryDatabase(databaseId, token) {
+            const options = {
+              hostname: 'api.notion.com',
+              port: 443,
+              path: `/v1/databases/${databaseId}/query`,
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Notion-Version': '2022-06-28',
+                'Content-Type': 'application/json',
+                'User-Agent': 'GitHub-Action-Sync'
+              }
+            };
             
-            // Clean up the value for display
-            if (col.toLowerCase().includes('difficulty') && value) {
-              value = getDifficultyBadge(value);
-            } else if (col.toLowerCase().includes('topic') && value) {
-              value = getTopicBadge(value);
+            const requestBody = {
+              sorts: []
+            };
+            
+            return await makeRequest(options, requestBody);
+          }
+
+          async function getDatabaseSchema(databaseId, token) {
+            const options = {
+              hostname: 'api.notion.com',
+              port: 443,
+              path: `/v1/databases/${databaseId}`,
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Notion-Version': '2022-06-28',
+                'Content-Type': 'application/json',
+                'User-Agent': 'GitHub-Action-Sync'
+              }
+            };
+            return await makeRequest(options);
+          }
+
+          function formatPropertyValue(property) {
+            if (!property) return '';
+            
+            switch (property.type) {
+              case 'title':
+                return property.title.map(t => t.plain_text).join('').trim();
+              case 'rich_text':
+                return property.rich_text.map(t => {
+                  let content = t.plain_text;
+                  if (t.annotations.bold) content = `**${content}**`;
+                  if (t.annotations.italic) content = `*${content}*`;
+                  if (t.annotations.code) content = `\`${content}\``;
+                  if (t.href) content = `[${content}](${t.href})`;
+                  return content;
+                }).join('').trim();
+              case 'number':
+                return property.number ? property.number.toString() : '';
+              case 'select':
+                return property.select ? property.select.name : '';
+              case 'multi_select':
+                return property.multi_select.map(s => s.name).join(', ');
+              case 'date':
+                if (property.date) {
+                  const date = new Date(property.date.start);
+                  return date.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                  });
+                }
+                return '';
+              case 'checkbox':
+                return property.checkbox ? '✅' : '❌';
+              case 'url':
+                return property.url ? `[Link](${property.url})` : '';
+              case 'email':
+                return property.email ? `[${property.email}](mailto:${property.email})` : '';
+              case 'phone_number':
+                return property.phone_number || '';
+              case 'status':
+                return property.status ? property.status.name : '';
+              case 'formula':
+                if (property.formula) {
+                  switch (property.formula.type) {
+                    case 'string':
+                      return property.formula.string || '';
+                    case 'number':
+                      return property.formula.number ? property.formula.number.toString() : '';
+                    case 'boolean':
+                      return property.formula.boolean ? '✅' : '❌';
+                    case 'date':
+                      return property.formula.date ? property.formula.date.start : '';
+                    default:
+                      return '';
+                  }
+                }
+                return '';
+              default:
+                return '';
+            }
+          }
+
+          function isRowCompleted(row, headers) {
+            for (const header of headers) {
+              const headerLower = header.toLowerCase();
+              if (headerLower.includes('done') || 
+                  headerLower.includes('completed') || 
+                  headerLower.includes('check') ||
+                  headerLower.includes('finish')) {
+                const value = row[header] || '';
+                if (value === '✅' || value.toLowerCase() === 'true' || 
+                    value.includes('✓') || value.includes('☑')) {
+                  return true;
+                }
+              }
             }
             
-            // Escape pipe characters and handle empty values
-            return value.replace(/\|/g, '\\|') || '-';
-          });
-          
-          markdown += '| ' + rowData.join(' | ') + ' |\n';
-        });
-      }
-    } else {
-      // Show general progress information
-      markdown = '## 📊 Progress Dashboard\n\n';
-      
-      if (allData.length > 0) {
-        // Show summary of what we found
-        markdown += `**Total Items:** ${allData.length}\n\n`;
-        
-        // Show the data we have (even if not marked as completed)
-        if (headers.length > 0) {
-          const relevantColumns = headers.filter(h => 
-            !h.toLowerCase().includes('property') && h !== 'Property'
-          );
-          
-          markdown += '### Current Status\n\n';
-          markdown += '| ' + relevantColumns.join(' | ') + ' |\n';
-          markdown += '| ' + relevantColumns.map(() => '---').join(' | ') + ' |\n';
-
-          allData.forEach(row => {
-            const rowData = relevantColumns.map(col => {
-              let value = row[col] || '';
-              return value.replace(/\|/g, '\\|') || '-';
-            });
+            const progressValue = row['Progress'] || '';
+            if (progressValue.includes('100%') || progressValue.includes('✅') || 
+                progressValue.toLowerCase().includes('complete')) {
+              return true;
+            }
             
-            markdown += '| ' + rowData.join(' | ') + ' |\n';
-          });
-        }
-      } else {
-        markdown += '*No data found in the database.*\n\n';
-        markdown += '💡 **Tip:** Make sure your Notion database has some entries and is properly configured.\n';
-      }
-    }
+            for (const [key, value] of Object.entries(row)) {
+              const valueStr = String(value).toLowerCase();
+              if (valueStr.includes('complete') || valueStr.includes('✅') || 
+                  valueStr.includes('done') || valueStr === 'true') {
+                return true;
+              }
+            }
+            
+            return false;
+          }
 
-    // Add metadata
-    const now = new Date();
-    const lastUpdated = now.toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-      timeZone: 'America/New_York'
-    });
-    
-    markdown += `\n---\n\n*📅 Last synced: ${lastUpdated} EST*\n`;
+          function getDifficultyBadge(difficulty) {
+            const difficultyStr = difficulty.toLowerCase().trim();
+            switch(difficultyStr) {
+              case 'easy':
+                return '🟢 Easy';
+              case 'medium':
+                return '🟡 Medium';
+              case 'hard':
+                return '🔴 Hard';
+              default:
+                return difficulty;
+            }
+          }
 
-    // Read existing README or create new one
-    let readme = '';
-    if (fs.existsSync('README.md')) {
-      readme = fs.readFileSync('README.md', 'utf8');
-    } else {
-      readme = '# Welcome to my GitHub Profile!\n\n';
-    }
+          async function syncNotion() {
+            const token = process.env.NOTION_TOKEN;
+            const pageId = process.env.NOTION_PAGE_ID || process.env.NOTION_DATABASE_ID;
+            
+            console.log('Environment check:');
+            console.log('- NOTION_TOKEN exists:', !!token);
+            console.log('- NOTION_PAGE_ID exists:', !!process.env.NOTION_PAGE_ID);
+            console.log('- Using Page ID:', pageId ? pageId.substring(0, 8) + '...' : 'MISSING');
+            
+            if (!token || !pageId) {
+              console.error('❌ Missing required environment variables');
+              process.exit(1);
+            }
 
-    // Update content between markers
-    const startMarker = '<!-- NOTION-SYNC-START -->';
-    const endMarker = '<!-- NOTION-SYNC-END -->';
-    
-    const startIndex = readme.indexOf(startMarker);
-    const endIndex = readme.indexOf(endMarker);
+            try {
+              console.log('Fetching Notion page content...');
+              
+              let allBlocks = [];
+              let hasMore = true;
+              let startCursor = null;
 
-    if (startIndex !== -1 && endIndex !== -1) {
-      // Replace content between markers
-      const before = readme.substring(0, startIndex + startMarker.length);
-      const after = readme.substring(endIndex);
-      readme = before + '\n\n' + markdown + '\n' + after;
-    } else {
-      // If markers don't exist, add them and content at the end
-      readme += `\n\n${startMarker}\n\n${markdown}\n${endMarker}\n`;
-    }
+              while (hasMore) {
+                const response = await getNotionBlocks(pageId, token, startCursor);
+                
+                if (response.results) {
+                  allBlocks = allBlocks.concat(response.results);
+                  hasMore = response.has_more;
+                  startCursor = response.next_cursor;
+                } else {
+                  console.error('Error fetching blocks:', response);
+                  process.exit(1);
+                }
+              }
 
-    fs.writeFileSync('README.md', readme);
-    console.log('✅ README updated successfully!');
+              console.log(`Found ${allBlocks.length} blocks on the page`);
 
-  } catch (error) {
-    console.error('❌ Error syncing Notion:', error.message);
-    if (error.response) {
-      console.error('Response:', error.response);
-    }
-    process.exit(1);
-  }
-}
+              let completedData = [];
+              let allData = [];
+              let headers = [];
+              
+              for (const block of allBlocks) {
+                if (block.type === 'child_database') {
+                  console.log('✅ Found database - querying...');
+                  
+                  const dbSchema = await getDatabaseSchema(block.id, token);
+                  const dbData = await queryDatabase(block.id, token);
+                  
+                  if (dbData.results && dbData.results.length > 0) {
+                    const propertyNames = Object.keys(dbSchema.properties || {});
+                    headers = propertyNames;
+                    
+                    dbData.results.forEach((entry) => {
+                      const rowData = {};
+                      propertyNames.forEach(propName => {
+                        rowData[propName] = formatPropertyValue(entry.properties[propName]);
+                      });
+                      
+                      allData.push(rowData);
+                      
+                      if (isRowCompleted(rowData, propertyNames)) {
+                        completedData.push(rowData);
+                      }
+                    });
+                    
+                    break;
+                  }
+                }
+              }
 
-syncNotion();
+              let markdown = '## 📊 Progress Dashboard\n\n';
+              
+              if (completedData.length > 0) {
+                markdown += `**Completed:** ${completedData.length} items\n\n`;
+              } else {
+                markdown += `**Total Items:** ${allData.length}\n\n`;
+              }
+
+              const dataToShow = completedData.length > 0 ? completedData : allData;
+              
+              if (dataToShow.length > 0 && headers.length > 0) {
+                const relevantColumns = headers.filter(h => h !== 'Property');
+                
+                markdown += '| ' + relevantColumns.join(' | ') + ' |\n';
+                markdown += '| ' + relevantColumns.map(() => '---').join(' | ') + ' |\n';
+
+                dataToShow.forEach(row => {
+                  const rowData = relevantColumns.map(col => {
+                    let value = row[col] || '';
+                    if (col.toLowerCase().includes('difficulty') && value) {
+                      value = getDifficultyBadge(value);
+                    }
+                    return value.replace(/\|/g, '\\|') || '-';
+                  });
+                  
+                  markdown += '| ' + rowData.join(' | ') + ' |\n';
+                });
+              }
+
+              const now = new Date();
+              const lastUpdated = now.toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZone: 'America/New_York'
+              });
+              
+              markdown += `\n---\n\n*📅 Last synced: ${lastUpdated} EST*\n`;
+
+              let readme = '';
+              if (fs.existsSync('README.md')) {
+                readme = fs.readFileSync('README.md', 'utf8');
+              } else {
+                readme = '# Welcome to my GitHub Profile!\n\n';
+              }
+
+              const startMarker = '<!-- NOTION-SYNC-START -->';
+              const endMarker = '<!-- NOTION-SYNC-END -->';
+              
+              const startIndex = readme.indexOf(startMarker);
+              const endIndex = readme.indexOf(endMarker);
+
+              if (startIndex !== -1 && endIndex !== -1) {
+                const before = readme.substring(0, startIndex + startMarker.length);
+                const after = readme.substring(endIndex);
+                readme = before + '\n\n' + markdown + '\n' + after;
+              } else {
+                readme += `\n\n${startMarker}\n\n${markdown}\n${endMarker}\n`;
+              }
+
+              fs.writeFileSync('README.md', readme);
+              console.log('✅ README updated successfully!');
+
+            } catch (error) {
+              console.error('❌ Error syncing Notion:', error.message);
+              process.exit(1);
+            }
+          }
+
+          syncNotion();
+          EOF
+          
+      - name: Sync Notion content
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
+        run: node sync-notion.js
+        
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add README.md
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "🔄 Auto-sync progress - $(date '+%Y-%m-%d %H:%M')"
+            git push
+            echo "✅ Changes pushed to repository"
+          fi
