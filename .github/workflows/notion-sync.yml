@@ -219,33 +219,88 @@ jobs:
               // Process the data - only include rows where "Done" is checked
               const completedProblems = [];
               
+              // First, let's see what properties actually exist
+              console.log('🔍 Available properties in database:', Object.keys(schema.properties));
+              
               data.results.forEach((entry, index) => {
                 const row = {};
                 
-                // Extract all properties
+                // Extract all properties and log them
+                console.log(`\n--- Processing Row ${index + 1} ---`);
                 Object.keys(schema.properties).forEach(propName => {
-                  row[propName] = formatPropertyValue(entry.properties[propName]);
+                  const rawProperty = entry.properties[propName];
+                  const formattedValue = formatPropertyValue(rawProperty);
+                  row[propName] = formattedValue;
+                  
+                  console.log(`  ${propName}: "${formattedValue}" (type: ${rawProperty?.type || 'unknown'})`);
+                  
+                  // Log raw checkbox value for Done column
+                  if (propName.toLowerCase().includes('done') && rawProperty?.type === 'checkbox') {
+                    console.log(`    Raw checkbox value: ${rawProperty.checkbox}`);
+                  }
                 });
 
-                console.log(`Row ${index + 1}:`, {
-                  day: row['Day'] || 'No day',
-                  problem: row['Problem Name & Link'] || 'No problem name',
-                  done: row['Done'] || 'Not checked'
+                // Check multiple conditions for inclusion
+                let shouldInclude = false;
+                let includeReason = '';
+
+                // Method 1: Check if Done checkbox is true
+                const doneProperty = entry.properties['Done'];
+                if (doneProperty && doneProperty.type === 'checkbox' && doneProperty.checkbox === true) {
+                  shouldInclude = true;
+                  includeReason = 'Done checkbox is checked';
+                }
+
+                // Method 2: Check if Problem Name & Link has content
+                const problemProperty = entry.properties['Problem Name & Link'];
+                const problemValue = formatPropertyValue(problemProperty);
+                if (problemValue && problemValue.trim().length > 0) {
+                  shouldInclude = true;
+                  includeReason = includeReason ? includeReason + ' AND has problem name' : 'Has problem name/link';
+                }
+
+                // Method 3: Check other possible Done column names
+                const possibleDoneColumns = ['Done', 'Completed', 'Complete', 'Finished', 'Check'];
+                for (const colName of possibleDoneColumns) {
+                  const prop = entry.properties[colName];
+                  if (prop && prop.type === 'checkbox' && prop.checkbox === true) {
+                    shouldInclude = true;
+                    includeReason = includeReason ? includeReason + ` AND ${colName} checked` : `${colName} checkbox checked`;
+                  }
+                }
+
+                // Method 4: Check if any column has a checkmark symbol
+                Object.keys(entry.properties).forEach(propName => {
+                  const value = formatPropertyValue(entry.properties[propName]);
+                  if (value && (value.includes('✅') || value.includes('☑') || value.includes('✓'))) {
+                    shouldInclude = true;
+                    includeReason = includeReason ? includeReason + ` AND ${propName} has checkmark` : `${propName} has checkmark symbol`;
+                  }
                 });
 
-                // Only include if "Done" checkbox is checked
-                if (entry.properties['Done']?.checkbox === true) {
+                console.log(`  Decision: ${shouldInclude ? '✅ INCLUDE' : '❌ SKIP'}`);
+                if (includeReason) {
+                  console.log(`  Reason: ${includeReason}`);
+                }
+
+                if (shouldInclude) {
                   completedProblems.push(row);
-                  console.log('✅ Including this completed problem');
-                } else {
-                  console.log('⏳ Skipping - not marked as done');
                 }
               });
 
               console.log(`🎯 Found ${completedProblems.length} completed problems out of ${data.results.length} total`);
 
               if (completedProblems.length === 0) {
-                console.log('⚠️ No completed problems found - make sure to check the Done checkbox for completed problems');
+                console.log('⚠️ No problems found matching our criteria');
+                console.log('💡 We look for rows that either:');
+                console.log('   1. Have the Done checkbox checked, OR');
+                console.log('   2. Have content in the Problem Name & Link column, OR');
+                console.log('   3. Have checkmark symbols (✅☑✓) in any column');
+                console.log('');
+                console.log('🔧 Try one of these:');
+                console.log('   - Check the Done checkbox for completed problems');
+                console.log('   - Add problem names/links to the Problem Name & Link column');
+                console.log('   - Add ✅ symbols to mark completed items');
                 return;
               }
 
