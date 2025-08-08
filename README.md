@@ -15,122 +15,17 @@
 
 <!-- NOTION-SYNC-START -->
 
+## 📊 Progress Dashboard
 
-💡 **Hola!!!!**
+**Completed:** 1 items
 
-| Progress | Number of Days | Completed | Property | Name |
-| --- | --- | --- | --- | --- |
-| ✅⬜⬜⬜⬜⬜⬜⬜⬜⬜ 9% |   |   |   | Your Progress |
-
-
-| Time & Space Complexity | Work | Date Edited / Completed | Difficulty |  | Done | Problem Name & Link | Topic | Languages | Related to Progress (Days) | Day |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 63 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 94 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 40 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 16 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 72 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 99 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 47 |
-| O(n) O(1) | Work |   | Easy |   | ✅ | Valid Palindrome | Arrays | java |   | Day 9 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 78 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 31 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 93 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 100 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 37 |
-| O(n) O(n) | Work |   | Medium |   | ✅ | Product Except Self | Arrays | java |   | Day 7 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 38 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 73 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 26 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 70 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 89 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 50 |
-| O(m*n) O(m) | Work |   | Medium |   | ✅ | Group Anagrams | Arrays | java |   | Day 4 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 52 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 56 |
-| O(n+m) O(n) | Work |   | Easy |   | ✅ | Valid-Anagram | Arrays | java |   | Day 2 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 71 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 58 |
-| O(n) O(n) | Work |   | Easy |   | ✅ | Duplicate-Integer | Arrays | java |   | Day 1 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 76 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 74 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 43 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 61 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 55 |
-| O(n) O(n) | Work |   | Medium |   | ✅ | Longest Consecutive Sequence | Arrays | java |   | Day 8 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 65 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 53 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 46 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 77 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 97 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 39 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 41 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 95 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 92 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 57 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 36 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 84 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 45 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 90 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 67 |
-| O(n) O(n) | Work |   | Easy |   | ✅ | two-sum | Arrays | java |   | Day 3 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 25 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 30 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 49 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 66 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 34 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 96 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 54 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 91 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 27 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 11 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 51 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 22 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 15 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 48 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 13 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 24 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 12 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 19 |
-| O(m) O(m+n) | Work |   | Medium |   | ✅ | Encoding & Decoding | Arrays | java |   | Day 6 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 10 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 87 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 18 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 88 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 23 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 69 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 14 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 28 |
-| O(n) O(n) | Work |   | Medium |   | ✅ | K-freq elements | Arrays | java |   | Day 5 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 75 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 81 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 32 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 98 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 62 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 59 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 20 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 85 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 33 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 44 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 86 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 35 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 42 |
-|   | Work |   |   |   | ❌ |   |   |   |   | Day 17 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 60 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 79 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 29 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 68 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 80 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 83 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 64 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 21 |
-|   |   |   |   |   | ❌ |   |   |   |   | Day 82 |
-
-
+| Progress | Number of Days | Completed | Name |
+| --- | --- | --- | --- |
+| ✅⬜⬜⬜⬜⬜⬜⬜⬜⬜ 9% | - | - | Your Progress |
 
 ---
 
-*📅 Last synced: 2025-08-08*
+*📅 Last synced: Aug 8, 2025, 12:43 AM EST*
 
 <!-- NOTION-SYNC-END -->
 
