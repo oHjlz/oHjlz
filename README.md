@@ -15,13 +15,11 @@
 
 <!-- NOTION-SYNC-START -->
 
-## 📊 Progress Dashboard
-
 **Completed:** 1 items
 
 | Progress | Number of Days | Completed | Name |
 | --- | --- | --- | --- |
-| ✅⬜⬜⬜⬜⬜⬜⬜⬜⬜ 9% | - | - | Your Progress |
+| ✅⬜⬜⬜⬜⬜⬜⬜⬜⬜ 9% | - | - |  |
 
 ---
 
