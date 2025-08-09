@@ -15,15 +15,10 @@
 
 <!-- NOTION-SYNC-START -->
 
-**Completed:** 1 items
+## 🧠 LeetCode Progress - Blind 75
 
-| Progress | Number of Days | Completed | Name |
-| --- | --- | --- | --- |
-| ✅⬜⬜⬜⬜⬜⬜⬜⬜⬜ 9% | - | - |  |
+**Progress:** 9/75 problems completed (12%)
 
----
-
-*📅 Last synced: Aug 8, 2025, 12:43 AM EST*
 
 <!-- NOTION-SYNC-END -->
 
