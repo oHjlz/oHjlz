@@ -16,7 +16,7 @@
 
 ## 🧠 LeetCode Progress - Blind 75
 
-**Progress:** 11/75 problems completed (15%)
+**Progress:** 12/75 problems completed (16%)
 
 
 <!-- NOTION-SYNC-END -->
