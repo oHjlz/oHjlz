@@ -17,14 +17,6 @@
   <img src="https://img.shields.io/badge/-Figma-black?style=for-the-badge&logo=figma&logoColor=F24E1E" />
 
 
-<!-- NOTION-SYNC-START -->
-
-## 🧠 LeetCode Progress - Blind 75
-
-**Progress:** 14/75 problems completed (19%)
-
-
-<!-- NOTION-SYNC-END -->
 
 # 📊 GitHub Stats:
 ![](https://github-readme-stats.vercel.app/api?username=oHjlz&theme=dark&hide_border=false&include_all_commits=true&count_private=true)<br/>
