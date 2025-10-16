@@ -27,3 +27,13 @@
 [![](https://visitcount.itsvg.in/api?id=oHjlz&icon=0&color=0)](https://visitcount.itsvg.in)
 
 <!-- Proudly created with GPRM ( https://gprm.itsvg.in ) -->
+
+
+<!-- NOTION-SYNC-START -->
+
+## 🧠 LeetCode Progress - Blind 75
+
+**Progress:** 14/75 problems completed (19%)
+
+
+<!-- NOTION-SYNC-END -->
