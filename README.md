@@ -29,11 +29,3 @@
 <!-- Proudly created with GPRM ( https://gprm.itsvg.in ) -->
 
 
-<!-- NOTION-SYNC-START -->
-
-## 🧠 LeetCode Progress - Blind 75
-
-**Progress:** 14/75 problems completed (19%)
-
-
-<!-- NOTION-SYNC-END -->
